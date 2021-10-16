@@ -130,3 +130,7 @@
 	path = helix-syntax/languages/tree-sitter-tsq
 	url = https://github.com/tree-sitter/tree-sitter-tsq
 	shallow = true
+[submodule "helix-syntax/languages/tree-sitter-heex"]
+	path = helix-syntax/languages/tree-sitter-heex
+	url = https://github.com/connorlay/tree-sitter-heex
+	shallow = true
