@@ -4,15 +4,10 @@ members = [
   "helix-view",
   "helix-term",
   "helix-tui",
-  "helix-syntax",
   "helix-lsp",
   "helix-dap",
   "xtask",
 ]
-
-# Build helix-syntax in release mode to make the code path faster in development.
-# [profile.dev.package."helix-syntax"]
-# opt-level = 3
 
 [profile.dev]
 split-debuginfo = "unpacked"
