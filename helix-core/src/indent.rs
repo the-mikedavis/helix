@@ -443,6 +443,7 @@ where
                 textobject_query: OnceCell::new(),
                 debugger: None,
             }],
+            grammar: vec![],
         });
 
         // set runtime path so we can find the queries
