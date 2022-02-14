@@ -1,5 +1,5 @@
 use helix_core::{
-    config::{default_syntax_loader, user_syntax_loader},
+    config::{default_syntax_loader, merged_syntax_loader},
     pos_at_coords, syntax, Selection,
 };
 use helix_dap::{self as dap, Payload, Request};
@@ -94,7 +94,7 @@ impl Application {
                 }
             });
 
-        let syn_loader_conf = user_syntax_loader().unwrap_or_else(|err| {
+        let syn_loader_conf = merged_syntax_loader().unwrap_or_else(|err| {
             eprintln!("Bad language config: {}", err);
             eprintln!("Press <ENTER> to continue with default language config");
             use std::io::Read;
