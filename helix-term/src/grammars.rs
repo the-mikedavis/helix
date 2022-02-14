@@ -13,16 +13,27 @@ const BUILD_TARGET: &str = env!("BUILD_TARGET");
 const REMOTE_NAME: &str = "helix-origin";
 
 pub fn fetch_grammars() {
+    run_parallel(get_grammar_configs(), fetch_grammar);
+}
+
+pub fn build_grammars() {
+    run_parallel(get_grammar_configs(), build_grammar);
+}
+
+fn run_parallel<F>(grammars: Vec<GrammarConfiguration>, job: F)
+where
+    F: Fn(GrammarConfiguration) + std::marker::Send + 'static + Copy,
+{
     let mut n_jobs = 0;
     let pool = threadpool::Builder::new().build();
     let (tx, rx) = channel();
 
-    for grammar in get_grammar_configs() {
+    for grammar in grammars {
         let tx = tx.clone();
         n_jobs += 1;
 
         pool.execute(move || {
-            fetch_grammar(grammar);
+            job(grammar);
 
             // report progress
             tx.send(1).unwrap();
@@ -122,27 +133,6 @@ fn get_repository_info(repository: &Path, args: Vec<&str>) -> Option<String> {
     } else {
         None
     }
-}
-
-pub fn build_grammars() {
-    let mut n_jobs = 0;
-    let pool = threadpool::Builder::new().build();
-    let (tx, rx) = channel();
-
-    for grammar in get_grammar_configs() {
-        let tx = tx.clone();
-        n_jobs += 1;
-
-        pool.execute(move || {
-            build_grammar(grammar);
-
-            // report progress
-            tx.send(1).unwrap();
-        });
-    }
-    pool.join();
-
-    assert_eq!(rx.try_iter().sum::<usize>(), n_jobs);
 }
 
 fn build_grammar(grammar: GrammarConfiguration) {
