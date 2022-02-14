@@ -97,32 +97,30 @@ pub fn fetch_grammar(grammar: GrammarConfiguration) {
 
 // Sets the remote for a repository to the given URL, creating the remote if
 // it does not yet exist.
-fn set_remote(repository: &Path, remote_url: &String) {
+fn set_remote(repository: &Path, remote_url: &str) {
     if !Command::new("git")
         .args(["remote", "set-url", REMOTE_NAME, remote_url])
-        .current_dir(repository.clone())
+        .current_dir(repository)
         .output()
         .expect("Failed to execute 'git'")
         .status
         .success()
-    {
-        if !Command::new("git")
+        && !Command::new("git")
             .args(["remote", "add", REMOTE_NAME, remote_url])
-            .current_dir(repository.clone())
+            .current_dir(repository)
             .output()
             .expect("Failed to execute 'git'")
             .status
             .success()
-        {
-            eprintln!("Failed to set remote '{}'", *remote_url);
-        }
+    {
+        eprintln!("Failed to set remote '{}'", remote_url);
     }
 }
 
 fn get_repository_info(repository: &Path, args: Vec<&str>) -> Option<String> {
     let output = Command::new("git")
         .args(args)
-        .current_dir(repository.clone())
+        .current_dir(repository)
         .output()
         .expect("Failed to execute 'git'");
     if output.status.success() {
