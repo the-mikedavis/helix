@@ -87,6 +87,11 @@ FLAGS:
         std::process::exit(0);
     }
 
+    if args.fetch_grammars {
+        helix_term::grammars::fetch_grammars();
+        std::process::exit(0);
+    }
+
     if args.build_grammars {
         helix_term::grammars::build_grammars();
         std::process::exit(0);

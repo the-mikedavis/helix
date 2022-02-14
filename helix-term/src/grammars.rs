@@ -6,20 +6,115 @@ use std::{
     process::Command,
 };
 
-use helix_core::syntax::{GrammarConfiguration, DYLIB_EXTENSION};
+use helix_core::syntax::{GrammarConfiguration, GrammarSource, DYLIB_EXTENSION};
 
 const BUILD_TARGET: &str = env!("BUILD_TARGET");
+const REMOTE_NAME: &str = "helix-origin";
+
+pub fn fetch_grammars() {
+    for grammar in get_grammar_configs() {
+        if let GrammarSource::Git { remote, revision } = grammar.source {
+            let grammar_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../runtime/grammars/sources")
+                .join(grammar.grammar_id.clone());
+
+            fs::create_dir_all(grammar_dir.clone()).expect("Could not create grammar directory");
+
+            // create the grammar dir contains a git directory
+            if !grammar_dir.join(".git").is_dir() {
+                Command::new("git")
+                    .args(["init"])
+                    .current_dir(grammar_dir.clone())
+                    .output()
+                    .expect("Could not execute 'git'");
+            }
+
+            // ensure the remote matches the configured remote
+            if get_repository_info(&grammar_dir, vec!["remote", "get-url", REMOTE_NAME])
+                != Some(remote.clone())
+            {
+                set_remote(&grammar_dir, &remote);
+            }
+
+            // ensure the revision matches the configured revision
+            if get_repository_info(&grammar_dir, vec!["rev-parse", "HEAD"])
+                != Some(revision.clone())
+            {
+                // Fetch the exact revision from the remote.
+                // Supported by server-side git since v2.5.0 (July 2015),
+                // enabled by default on major git hosts.
+                Command::new("git")
+                    .args(["fetch", REMOTE_NAME, &revision])
+                    .current_dir(grammar_dir.clone())
+                    .output()
+                    .expect("Failed to execute 'git'");
+
+                Command::new("git")
+                    .args(["checkout", &revision])
+                    .current_dir(grammar_dir)
+                    .output()
+                    .expect("Failed to execute 'git'");
+
+                println!(
+                    "Grammar '{}' checked out at '{}'.",
+                    grammar.grammar_id, revision
+                );
+            } else {
+                println!("Grammar '{}' is already up to date.", grammar.grammar_id);
+            }
+        };
+    }
+}
+
+// Sets the remote for a repository to the given URL, creating the remote if
+// it does not yet exist.
+fn set_remote(repository: &Path, remote_url: &String) {
+    if !Command::new("git")
+        .args(["remote", "set-url", REMOTE_NAME, remote_url])
+        .current_dir(repository.clone())
+        .output()
+        .expect("Failed to execute 'git'")
+        .status
+        .success()
+    {
+        if !Command::new("git")
+            .args(["remote", "add", REMOTE_NAME, remote_url])
+            .current_dir(repository.clone())
+            .output()
+            .expect("Failed to execute 'git'")
+            .status
+            .success()
+        {
+            eprintln!("Failed to set remote '{}'", *remote_url);
+        }
+    }
+}
+
+fn get_repository_info(repository: &Path, args: Vec<&str>) -> Option<String> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(repository.clone())
+        .output()
+        .expect("Failed to execute 'git'");
+    if output.status.success() {
+        let mut remote = String::from_utf8_lossy(output.stdout.as_slice()).into_owned();
+        // remove trailing newline
+        remote.pop();
+        Some(remote)
+    } else {
+        None
+    }
+}
 
 pub fn build_grammars() {
-    let builtin_err_msg = "Could not parse built-in languages.toml, something must be very wrong";
-
-    let config: helix_core::syntax::Configuration =
-        toml::from_slice(include_bytes!("../../languages.toml")).expect(builtin_err_msg);
-
-    for grammar in config.grammar {
-        let grammar_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../runtime/grammars/sources")
-            .join(grammar.grammar_id.clone());
+    for grammar in get_grammar_configs() {
+        let grammar_dir = if let GrammarSource::Local { ref path } = grammar.source {
+            PathBuf::from(path)
+        } else {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../runtime/grammars/sources")
+                .join(grammar.grammar_id.clone())
+        };
 
         if grammar_dir.read_dir().is_err() {
             eprintln!(
@@ -37,6 +132,16 @@ pub fn build_grammars() {
 
         build_library(&path, grammar).unwrap();
     }
+}
+
+fn get_grammar_configs() -> Vec<GrammarConfiguration> {
+    let builtin_err_msg = "Could not parse built-in languages.toml, something must be very wrong";
+
+    // TODO prefer user config and default to the built-in.
+    let config: helix_core::syntax::Configuration =
+        toml::from_slice(include_bytes!("../../languages.toml")).expect(builtin_err_msg);
+
+    config.grammar
 }
 
 fn build_library(src_path: &Path, grammar: GrammarConfiguration) -> Result<()> {
@@ -134,6 +239,7 @@ fn build_library(src_path: &Path, grammar: GrammarConfiguration) -> Result<()> {
 
     Ok(())
 }
+
 fn needs_recompile(
     lib_path: &Path,
     parser_c_path: &Path,
