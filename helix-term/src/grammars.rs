@@ -4,6 +4,7 @@ use std::time::SystemTime;
 use std::{
     path::{Path, PathBuf},
     process::Command,
+    sync::mpsc::channel,
 };
 
 use helix_core::syntax::{GrammarConfiguration, GrammarSource, DYLIB_EXTENSION};
@@ -12,58 +13,75 @@ const BUILD_TARGET: &str = env!("BUILD_TARGET");
 const REMOTE_NAME: &str = "helix-origin";
 
 pub fn fetch_grammars() {
+    let mut n_jobs = 0;
+    let pool = threadpool::Builder::new().build();
+    let (tx, rx) = channel();
+
     for grammar in get_grammar_configs() {
-        if let GrammarSource::Git { remote, revision } = grammar.source {
-            let grammar_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../runtime/grammars/sources")
-                .join(grammar.grammar_id.clone());
+        let tx = tx.clone();
+        n_jobs += 1;
 
-            fs::create_dir_all(grammar_dir.clone()).expect("Could not create grammar directory");
+        pool.execute(move || {
+            fetch_grammar(grammar);
 
-            // create the grammar dir contains a git directory
-            if !grammar_dir.join(".git").is_dir() {
-                Command::new("git")
-                    .args(["init"])
-                    .current_dir(grammar_dir.clone())
-                    .output()
-                    .expect("Could not execute 'git'");
-            }
-
-            // ensure the remote matches the configured remote
-            if get_repository_info(&grammar_dir, vec!["remote", "get-url", REMOTE_NAME])
-                != Some(remote.clone())
-            {
-                set_remote(&grammar_dir, &remote);
-            }
-
-            // ensure the revision matches the configured revision
-            if get_repository_info(&grammar_dir, vec!["rev-parse", "HEAD"])
-                != Some(revision.clone())
-            {
-                // Fetch the exact revision from the remote.
-                // Supported by server-side git since v2.5.0 (July 2015),
-                // enabled by default on major git hosts.
-                Command::new("git")
-                    .args(["fetch", REMOTE_NAME, &revision])
-                    .current_dir(grammar_dir.clone())
-                    .output()
-                    .expect("Failed to execute 'git'");
-
-                Command::new("git")
-                    .args(["checkout", &revision])
-                    .current_dir(grammar_dir)
-                    .output()
-                    .expect("Failed to execute 'git'");
-
-                println!(
-                    "Grammar '{}' checked out at '{}'.",
-                    grammar.grammar_id, revision
-                );
-            } else {
-                println!("Grammar '{}' is already up to date.", grammar.grammar_id);
-            }
-        };
+            // report progress
+            tx.send(1).unwrap();
+        });
     }
+    pool.join();
+
+    assert_eq!(rx.try_iter().sum::<usize>(), n_jobs);
+}
+
+pub fn fetch_grammar(grammar: GrammarConfiguration) {
+    if let GrammarSource::Git { remote, revision } = grammar.source {
+        let grammar_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../runtime/grammars/sources")
+            .join(grammar.grammar_id.clone());
+
+        fs::create_dir_all(grammar_dir.clone()).expect("Could not create grammar directory");
+
+        // create the grammar dir contains a git directory
+        if !grammar_dir.join(".git").is_dir() {
+            Command::new("git")
+                .args(["init"])
+                .current_dir(grammar_dir.clone())
+                .output()
+                .expect("Could not execute 'git'");
+        }
+
+        // ensure the remote matches the configured remote
+        if get_repository_info(&grammar_dir, vec!["remote", "get-url", REMOTE_NAME])
+            != Some(remote.clone())
+        {
+            set_remote(&grammar_dir, &remote);
+        }
+
+        // ensure the revision matches the configured revision
+        if get_repository_info(&grammar_dir, vec!["rev-parse", "HEAD"]) != Some(revision.clone()) {
+            // Fetch the exact revision from the remote.
+            // Supported by server-side git since v2.5.0 (July 2015),
+            // enabled by default on major git hosts.
+            Command::new("git")
+                .args(["fetch", REMOTE_NAME, &revision])
+                .current_dir(grammar_dir.clone())
+                .output()
+                .expect("Failed to execute 'git'");
+
+            Command::new("git")
+                .args(["checkout", &revision])
+                .current_dir(grammar_dir)
+                .output()
+                .expect("Failed to execute 'git'");
+
+            println!(
+                "Grammar '{}' checked out at '{}'.",
+                grammar.grammar_id, revision
+            );
+        } else {
+            println!("Grammar '{}' is already up to date.", grammar.grammar_id);
+        }
+    };
 }
 
 // Sets the remote for a repository to the given URL, creating the remote if
@@ -107,31 +125,50 @@ fn get_repository_info(repository: &Path, args: Vec<&str>) -> Option<String> {
 }
 
 pub fn build_grammars() {
+    let mut n_jobs = 0;
+    let pool = threadpool::Builder::new().build();
+    let (tx, rx) = channel();
+
     for grammar in get_grammar_configs() {
-        let grammar_dir = if let GrammarSource::Local { ref path } = grammar.source {
-            PathBuf::from(path)
-        } else {
-            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../runtime/grammars/sources")
-                .join(grammar.grammar_id.clone())
-        };
+        let tx = tx.clone();
+        n_jobs += 1;
 
-        if grammar_dir.read_dir().is_err() {
-            eprintln!(
-                "The directory {:?} is empty, you probably need to use 'hx --fetch-grammars'?",
-                grammar_dir
-            );
-            std::process::exit(1);
-        }
+        pool.execute(move || {
+            build_grammar(grammar);
 
-        let path = match grammar.path {
-            Some(ref subpath) => grammar_dir.join(subpath),
-            None => grammar_dir,
-        }
-        .join("src");
-
-        build_library(&path, grammar).unwrap();
+            // report progress
+            tx.send(1).unwrap();
+        });
     }
+    pool.join();
+
+    assert_eq!(rx.try_iter().sum::<usize>(), n_jobs);
+}
+
+fn build_grammar(grammar: GrammarConfiguration) {
+    let grammar_dir = if let GrammarSource::Local { ref path } = grammar.source {
+        PathBuf::from(path)
+    } else {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../runtime/grammars/sources")
+            .join(grammar.grammar_id.clone())
+    };
+
+    if grammar_dir.read_dir().is_err() {
+        eprintln!(
+            "The directory {:?} is empty, you probably need to use 'hx --fetch-grammars'?",
+            grammar_dir
+        );
+        std::process::exit(1);
+    }
+
+    let path = match grammar.path {
+        Some(ref subpath) => grammar_dir.join(subpath),
+        None => grammar_dir,
+    }
+    .join("src");
+
+    build_library(&path, grammar).unwrap();
 }
 
 fn get_grammar_configs() -> Vec<GrammarConfiguration> {
