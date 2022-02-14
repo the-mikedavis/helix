@@ -7,6 +7,8 @@ pub struct Args {
     pub display_help: bool,
     pub display_version: bool,
     pub load_tutor: bool,
+    pub fetch_grammars: bool,
+    pub build_grammars: bool,
     pub verbosity: u64,
     pub files: Vec<(PathBuf, Position)>,
 }
@@ -25,6 +27,8 @@ impl Args {
                 "--version" => args.display_version = true,
                 "--help" => args.display_help = true,
                 "--tutor" => args.load_tutor = true,
+                "--fetch-grammars" => args.fetch_grammars = true,
+                "--build-grammars" => args.build_grammars = true,
                 arg if arg.starts_with("--") => {
                     return Err(Error::msg(format!(
                         "unexpected double dash argument: {}",
