@@ -6,35 +6,40 @@ use std::{
     process::Command,
 };
 
-use helix_core::syntax::DYLIB_EXTENSION;
+use helix_core::syntax::{GrammarConfiguration, DYLIB_EXTENSION};
 
 const BUILD_TARGET: &str = env!("BUILD_TARGET");
 
-pub fn collect_tree_sitter_dirs(ignore: &[String]) -> Result<Vec<String>> {
-    let mut dirs = Vec::new();
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../helix-syntax/languages");
+pub fn build_grammars() {
+    let builtin_err_msg = "Could not parse built-in languages.toml, something must be very wrong";
 
-    for entry in fs::read_dir(path)? {
-        let entry = entry?;
-        let path = entry.path();
+    let config: helix_core::syntax::Configuration =
+        toml::from_slice(include_bytes!("../../languages.toml")).expect(builtin_err_msg);
 
-        if !entry.file_type()?.is_dir() {
-            continue;
+    for grammar in config.grammar {
+        let grammar_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../runtime/grammars/sources")
+            .join(grammar.grammar_id.clone());
+
+        if grammar_dir.read_dir().is_err() {
+            eprintln!(
+                "The directory {:?} is empty, you probably need to use 'hx --fetch-grammars'?",
+                grammar_dir
+            );
+            std::process::exit(1);
         }
 
-        let dir = path.file_name().unwrap().to_str().unwrap().to_string();
-
-        // filter ignores
-        if ignore.contains(&dir) {
-            continue;
+        let path = match grammar.path {
+            Some(ref subpath) => grammar_dir.join(subpath),
+            None => grammar_dir,
         }
-        dirs.push(dir)
+        .join("src");
+
+        build_library(&path, grammar).unwrap();
     }
-
-    Ok(dirs)
 }
 
-fn build_library(src_path: &Path, language: &str) -> Result<()> {
+fn build_library(src_path: &Path, grammar: GrammarConfiguration) -> Result<()> {
     let header_path = src_path;
     // let grammar_path = src_path.join("grammar.json");
     let parser_path = src_path.join("parser.c");
@@ -51,15 +56,19 @@ fn build_library(src_path: &Path, language: &str) -> Result<()> {
         }
     };
     let parser_lib_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../runtime/grammars");
-    let mut library_path = parser_lib_path.join(language);
+    let mut library_path = parser_lib_path.join(grammar.grammar_id.clone());
     library_path.set_extension(DYLIB_EXTENSION);
 
     let recompile = needs_recompile(&library_path, &parser_path, &scanner_path)
         .with_context(|| "Failed to compare source and binary timestamps")?;
 
     if !recompile {
+        println!("Grammar '{}' is already built.", grammar.grammar_id);
         return Ok(());
     }
+
+    println!("Building grammar '{}'", grammar.grammar_id);
+
     let mut config = cc::Build::new();
     config
         .cpp(true)
@@ -147,29 +156,4 @@ fn needs_recompile(
 
 fn mtime(path: &Path) -> Result<SystemTime> {
     Ok(fs::metadata(path)?.modified()?)
-}
-
-pub fn build_dir(dir: &str, language: &str) {
-    println!("Build language {}", language);
-    if PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../helix-syntax/languages")
-        .join(dir)
-        .read_dir()
-        .unwrap()
-        .next()
-        .is_none()
-    {
-        eprintln!(
-            "The directory {} is empty, you probably need to use './scripts/grammars sync'?",
-            dir
-        );
-        std::process::exit(1);
-    }
-
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../helix-syntax/languages")
-        .join(dir)
-        .join("src");
-
-    build_library(&path, language).unwrap();
 }

@@ -87,6 +87,11 @@ FLAGS:
         std::process::exit(0);
     }
 
+    if args.build_grammars {
+        helix_term::grammars::build_grammars();
+        std::process::exit(0);
+    }
+
     let conf_dir = helix_core::config_dir();
     if !conf_dir.exists() {
         std::fs::create_dir_all(&conf_dir).ok();
