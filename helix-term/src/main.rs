@@ -88,13 +88,11 @@ FLAGS:
     }
 
     if args.fetch_grammars {
-        helix_term::grammars::fetch_grammars();
-        std::process::exit(0);
+        return helix_term::grammars::fetch_grammars().map(|_| 0);
     }
 
     if args.build_grammars {
-        helix_term::grammars::build_grammars();
-        std::process::exit(0);
+        return helix_term::grammars::build_grammars().map(|_| 0);
     }
 
     let conf_dir = helix_core::config_dir();

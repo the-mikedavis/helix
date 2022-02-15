@@ -12,17 +12,17 @@ use helix_core::syntax::{GrammarConfiguration, GrammarSelection, GrammarSource, 
 const BUILD_TARGET: &str = env!("BUILD_TARGET");
 const REMOTE_NAME: &str = "origin";
 
-pub fn fetch_grammars() {
-    run_parallel(get_grammar_configs(), fetch_grammar);
+pub fn fetch_grammars() -> Result<()> {
+    run_parallel(get_grammar_configs(), fetch_grammar, "fetch")
 }
 
-pub fn build_grammars() {
-    run_parallel(get_grammar_configs(), build_grammar);
+pub fn build_grammars() -> Result<()> {
+    run_parallel(get_grammar_configs(), build_grammar, "build")
 }
 
-fn run_parallel<F>(grammars: Vec<GrammarConfiguration>, job: F)
+fn run_parallel<F>(grammars: Vec<GrammarConfiguration>, job: F, action: &'static str) -> Result<()>
 where
-    F: Fn(GrammarConfiguration) + std::marker::Send + 'static + Copy,
+    F: Fn(GrammarConfiguration) -> Result<()> + std::marker::Send + 'static + Copy,
 {
     let mut n_jobs = 0;
     let pool = threadpool::Builder::new().build();
@@ -33,7 +33,10 @@ where
         n_jobs += 1;
 
         pool.execute(move || {
-            job(grammar);
+            let grammar_id = grammar.grammar_id.clone();
+            job(grammar).unwrap_or_else(|err| {
+                eprintln!("Failed to {} grammar '{}'\n{}", action, grammar_id, err)
+            });
 
             // report progress
             tx.send(1).unwrap();
@@ -41,10 +44,14 @@ where
     }
     pool.join();
 
-    assert_eq!(rx.try_iter().sum::<usize>(), n_jobs);
+    if rx.try_iter().sum::<usize>() == n_jobs {
+        Ok(())
+    } else {
+        Err(anyhow!("Failed to {} some grammar(s).", action))
+    }
 }
 
-pub fn fetch_grammar(grammar: GrammarConfiguration) {
+pub fn fetch_grammar(grammar: GrammarConfiguration) -> Result<()> {
     if let GrammarSource::Git { remote, revision } = grammar.source {
         let grammar_dir = helix_core::runtime_dir()
             .join("grammars/sources")
@@ -54,97 +61,77 @@ pub fn fetch_grammar(grammar: GrammarConfiguration) {
 
         // create the grammar dir contains a git directory
         if !grammar_dir.join(".git").is_dir() {
-            Command::new("git")
-                .args(["init"])
-                .current_dir(grammar_dir.clone())
-                .output()
-                .expect("Could not execute 'git'");
+            git(&grammar_dir, ["init"])?;
         }
 
         // ensure the remote matches the configured remote
         if get_remote_url(&grammar_dir).map_or(true, |s| s.trim_end() != remote) {
-            set_remote(&grammar_dir, &remote);
+            set_remote(&grammar_dir, &remote)?;
         }
 
         // ensure the revision matches the configured revision
-        if get_revision(&grammar_dir).map_or(true, |s| s != revision) {
+        if get_revision(&grammar_dir).map_or(true, |s| s.trim_end() != revision) {
             // Fetch the exact revision from the remote.
             // Supported by server-side git since v2.5.0 (July 2015),
             // enabled by default on major git hosts.
-            Command::new("git")
-                .args(["fetch", REMOTE_NAME, &revision])
-                .current_dir(grammar_dir.clone())
-                .output()
-                .expect("Failed to execute 'git'");
-
-            Command::new("git")
-                .args(["checkout", &revision])
-                .current_dir(grammar_dir)
-                .output()
-                .expect("Failed to execute 'git'");
+            git(&grammar_dir, ["fetch", REMOTE_NAME, &revision])?;
+            git(&grammar_dir, ["checkout", &revision])?;
 
             println!(
                 "Grammar '{}' checked out at '{}'.",
                 grammar.grammar_id, revision
             );
+            Ok(())
         } else {
             println!("Grammar '{}' is already up to date.", grammar.grammar_id);
+            Ok(())
         }
-    };
+    } else {
+        println!("Skipping local grammar '{}'", grammar.grammar_id);
+        Ok(())
+    }
 }
 
 // Sets the remote for a repository to the given URL, creating the remote if
 // it does not yet exist.
-fn set_remote(repository: &Path, remote_url: &str) {
-    if !Command::new("git")
-        .args(["remote", "set-url", REMOTE_NAME, remote_url])
-        .current_dir(repository)
-        .output()
-        .expect("Failed to execute 'git'")
-        .status
-        .success()
-        && !Command::new("git")
-            .args(["remote", "add", REMOTE_NAME, remote_url])
-            .current_dir(repository)
-            .output()
-            .expect("Failed to execute 'git'")
-            .status
-            .success()
-    {
-        eprintln!("Failed to set remote '{}'", remote_url);
-    }
+fn set_remote(repository: &Path, remote_url: &str) -> Result<String> {
+    git(repository, ["remote", "set-url", REMOTE_NAME, remote_url])
+        .or_else(|_| git(repository, ["remote", "add", REMOTE_NAME, remote_url]))
 }
 
 fn get_remote_url(repository: &Path) -> Option<String> {
-    let output = Command::new("git")
-        .args(["remote", "get-url", REMOTE_NAME])
-        .current_dir(repository)
-        .output()
-        .expect("Failed to execute 'git'");
-    if output.status.success() {
-        Some(String::from_utf8_lossy(output.stdout.as_slice()).into_owned())
-    } else {
-        None
-    }
+    git(repository, ["remote", "get-url", REMOTE_NAME]).ok()
 }
 
 fn get_revision(repository: &Path) -> Option<String> {
+    git(repository, ["rev-parse", "HEAD"]).ok()
+}
+
+// A wrapper around 'git' commands which returns stdout in success and a
+// helpful error message showing the command, stdout, and stderr in error.
+fn git<I, S>(repository: &Path, args: I) -> Result<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
     let output = Command::new("git")
-        .args(["rev-parse", "HEAD"])
+        .args(args)
         .current_dir(repository)
-        .output()
-        .expect("Failed to execute 'git'");
+        .output()?;
+
     if output.status.success() {
-        let mut remote = String::from_utf8_lossy(output.stdout.as_slice()).into_owned();
-        // remove trailing newline
-        remote.pop();
-        Some(remote)
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     } else {
-        None
+        // TODO: figure out how to display the git command using `args`
+        Err(anyhow!(
+            "Git command failed.\nStdout: {}\nStderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        ))
     }
 }
 
-fn build_grammar(grammar: GrammarConfiguration) {
+fn build_grammar(grammar: GrammarConfiguration) -> Result<()> {
     let grammar_dir = if let GrammarSource::Local { ref path } = grammar.source {
         PathBuf::from(path)
     } else {
@@ -154,11 +141,10 @@ fn build_grammar(grammar: GrammarConfiguration) {
     };
 
     if grammar_dir.read_dir().is_err() {
-        eprintln!(
+        return Err(anyhow!(
             "The directory {:?} is empty, you probably need to use 'hx --fetch-grammars'?",
             grammar_dir
-        );
-        std::process::exit(1);
+        ));
     }
 
     let path = match grammar.path {
@@ -167,7 +153,7 @@ fn build_grammar(grammar: GrammarConfiguration) {
     }
     .join("src");
 
-    build_library(&path, grammar).unwrap();
+    build_tree_sitter_library(&path, grammar)
 }
 
 // Returns the set of grammar configurations the user requests.
@@ -192,7 +178,7 @@ fn get_grammar_configs() -> Vec<GrammarConfiguration> {
     }
 }
 
-fn build_library(src_path: &Path, grammar: GrammarConfiguration) -> Result<()> {
+fn build_tree_sitter_library(src_path: &Path, grammar: GrammarConfiguration) -> Result<()> {
     let header_path = src_path;
     // let grammar_path = src_path.join("grammar.json");
     let parser_path = src_path.join("parser.c");
