@@ -159,11 +159,12 @@ fn build_grammar(grammar: GrammarConfiguration) {
     build_library(&path, grammar).unwrap();
 }
 
-// Returns the user-defined set of grammars if the user has a languages.toml,
-// defaulting to the built-in languages.toml entries.
+// Returns the set of grammar configurations the user requests.
+// Grammars are configured in the default and user `languages.toml` and are
+// merged. The `grammar_selection` key of the config is then used to filter
+// down all grammars into a subset of the user's choosing.
 fn get_grammar_configs() -> Vec<GrammarConfiguration> {
-    let config =
-        helix_core::config::merged_syntax_loader().expect("Could not parse languages.toml");
+    let config = helix_core::config::user_syntax_loader().expect("Could not parse languages.toml");
 
     match config.grammar_selection {
         Some(GrammarSelection::Only(selections)) => config
