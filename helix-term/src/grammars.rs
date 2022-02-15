@@ -62,14 +62,12 @@ pub fn fetch_grammar(grammar: GrammarConfiguration) {
         }
 
         // ensure the remote matches the configured remote
-        if get_repository_info(&grammar_dir, vec!["remote", "get-url", REMOTE_NAME])
-            != Some(remote.clone())
-        {
+        if get_remote_url(&grammar_dir).map_or(true, |s| s.trim_end() != remote) {
             set_remote(&grammar_dir, &remote);
         }
 
         // ensure the revision matches the configured revision
-        if get_repository_info(&grammar_dir, vec!["rev-parse", "HEAD"]) != Some(revision.clone()) {
+        if get_revision(&grammar_dir).map_or(true, |s| s != revision) {
             // Fetch the exact revision from the remote.
             // Supported by server-side git since v2.5.0 (July 2015),
             // enabled by default on major git hosts.
@@ -117,9 +115,22 @@ fn set_remote(repository: &Path, remote_url: &str) {
     }
 }
 
-fn get_repository_info(repository: &Path, args: Vec<&str>) -> Option<String> {
+fn get_remote_url(repository: &Path) -> Option<String> {
     let output = Command::new("git")
-        .args(args)
+        .args(["remote", "get-url", REMOTE_NAME])
+        .current_dir(repository)
+        .output()
+        .expect("Failed to execute 'git'");
+    if output.status.success() {
+        Some(String::from_utf8_lossy(output.stdout.as_slice()).into_owned())
+    } else {
+        None
+    }
+}
+
+fn get_revision(repository: &Path) -> Option<String> {
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
         .current_dir(repository)
         .output()
         .expect("Failed to execute 'git'");
