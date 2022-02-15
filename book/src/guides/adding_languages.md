@@ -5,7 +5,7 @@
 To add a new language, you need to add a `language` entry to the
 [`languages.toml`][languages.toml] found in the root of the repository;
 this `languages.toml` file is included at compilation time, and is
-distinct from the `language.toml` file in the user's [configuration
+distinct from the `languages.toml` file in the user's [configuration
 directory](../configuration.md).
 
 ```toml

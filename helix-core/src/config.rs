@@ -29,7 +29,7 @@ pub fn merged_lang_config() -> Result<toml::Value, toml::de::Error> {
 pub fn default_syntax_loader() -> crate::syntax::Configuration {
     default_lang_config()
         .try_into()
-        .expect("Could not serialize built-in language.toml")
+        .expect("Could not serialize built-in languages.toml")
 }
 
 /// Syntax configuration loader based only on user configured languages.toml.
