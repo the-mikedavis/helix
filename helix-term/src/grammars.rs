@@ -10,7 +10,7 @@ use std::{
 use helix_core::syntax::{GrammarConfiguration, GrammarSelection, GrammarSource, DYLIB_EXTENSION};
 
 const BUILD_TARGET: &str = env!("BUILD_TARGET");
-const REMOTE_NAME: &str = "helix-origin";
+const REMOTE_NAME: &str = "origin";
 
 pub fn fetch_grammars() {
     run_parallel(get_grammar_configs(), fetch_grammar);
