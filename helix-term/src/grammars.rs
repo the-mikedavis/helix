@@ -46,8 +46,8 @@ where
 
 pub fn fetch_grammar(grammar: GrammarConfiguration) {
     if let GrammarSource::Git { remote, revision } = grammar.source {
-        let grammar_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../runtime/grammars/sources")
+        let grammar_dir = helix_core::runtime_dir()
+            .join("grammars/sources")
             .join(grammar.grammar_id.clone());
 
         fs::create_dir_all(grammar_dir.clone()).expect("Could not create grammar directory");
@@ -148,8 +148,8 @@ fn build_grammar(grammar: GrammarConfiguration) {
     let grammar_dir = if let GrammarSource::Local { ref path } = grammar.source {
         PathBuf::from(path)
     } else {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../runtime/grammars/sources")
+        helix_core::runtime_dir()
+            .join("grammars/sources")
             .join(grammar.grammar_id.clone())
     };
 
