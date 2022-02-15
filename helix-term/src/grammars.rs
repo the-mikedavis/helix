@@ -7,7 +7,7 @@ use std::{
     sync::mpsc::channel,
 };
 
-use helix_core::syntax::{GrammarConfiguration, GrammarSource, DYLIB_EXTENSION};
+use helix_core::syntax::{GrammarConfiguration, GrammarSelection, GrammarSource, DYLIB_EXTENSION};
 
 const BUILD_TARGET: &str = env!("BUILD_TARGET");
 const REMOTE_NAME: &str = "helix-origin";
@@ -162,11 +162,22 @@ fn build_grammar(grammar: GrammarConfiguration) {
 // Returns the user-defined set of grammars if the user has a languages.toml,
 // defaulting to the built-in languages.toml entries.
 fn get_grammar_configs() -> Vec<GrammarConfiguration> {
-    let config = helix_core::config::user_syntax_loader()
-        .map(|config| config.expect("Could not parse user-defined languages.toml"))
-        .unwrap_or_else(helix_core::config::default_syntax_loader);
+    let config =
+        helix_core::config::merged_syntax_loader().expect("Could not parse languages.toml");
 
-    config.grammar
+    match config.grammar_selection {
+        Some(GrammarSelection::Only(selections)) => config
+            .grammar
+            .into_iter()
+            .filter(|grammar| selections.contains(&grammar.grammar_id))
+            .collect(),
+        Some(GrammarSelection::Except(rejections)) => config
+            .grammar
+            .into_iter()
+            .filter(|grammar| !rejections.contains(&grammar.grammar_id))
+            .collect(),
+        None => config.grammar,
+    }
 }
 
 fn build_library(src_path: &Path, grammar: GrammarConfiguration) -> Result<()> {
