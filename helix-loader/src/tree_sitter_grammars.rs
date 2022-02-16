@@ -219,7 +219,7 @@ fn build_tree_sitter_library(src_path: &Path, grammar: Grammar) -> Result<()> {
     let mut config = cc::Build::new();
     config
         .cpp(true)
-        .opt_level(2)
+        .opt_level(3)
         .cargo_metadata(false)
         .host(BUILD_TARGET)
         .target(BUILD_TARGET);
@@ -254,7 +254,7 @@ fn build_tree_sitter_library(src_path: &Path, grammar: Grammar) -> Result<()> {
             .arg(header_path)
             .arg("-o")
             .arg(&library_path)
-            .arg("-O2");
+            .arg("-O3");
         if let Some(scanner_path) = scanner_path.as_ref() {
             if scanner_path.extension() == Some("c".as_ref()) {
                 command.arg("-xc").arg("-std=c99").arg(scanner_path);
