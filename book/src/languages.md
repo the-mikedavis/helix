@@ -19,19 +19,19 @@ Tree-sitter grammars can also be configured in `languages.toml`:
 ```toml
 # in <config_dir>/helix/languages.toml
 
-[[grammar]]
+[[language]]
 name = "rust"
-source = { git = "https://github.com/tree-sitter/tree-sitter-rust", rev = "a250c4582510ff34767ec3b7dcdd3c24e8c8aa68" }
+grammar.source = { git = "https://github.com/tree-sitter/tree-sitter-rust", rev = "a250c4582510ff34767ec3b7dcdd3c24e8c8aa68" }
 
-[[grammar]]
+[[language]]
 name = "c"
-source = { path = "/path/to/tree-sitter-c" }
+grammar.source = { path = "/path/to/tree-sitter-c" }
 ```
 
 You may use a top-level `use-grammars` key to control which grammars are fetched and built.
 
 ```toml
-# Note: this key must come **before** the [[language]] and [[grammar]] sections
+# Note: this key must come **before** the [[language]] sections
 use-grammars = { only = [ "rust", "c", "cpp" ] }
 # or
 use-grammars = { except = [ "yaml", "json" ] }
