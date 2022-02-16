@@ -62,17 +62,14 @@ jobs:
           target: ${{ matrix.target }}
           override: true
 
-      - name: Copy test languages.toml
-        run: cp .github/workflows/languages.toml ./languages.toml
-
-      - name: Download test tree-sitter grammar
+      - name: Fetch tree-sitter grammars
         uses: actions-rs/cargo@v1
         with:
           use-cross: ${{ matrix.cross }}
           command: run
           args: --release --locked --target ${{ matrix.target }} -- --fetch-grammars
 
-      - name: Build test tree-sitter grammar
+      - name: Build tree-sitter grammars
         uses: actions-rs/cargo@v1
         with:
           use-cross: ${{ matrix.cross }}
@@ -85,9 +82,6 @@ jobs:
           use-cross: ${{ matrix.cross }}
           command: test
           args: --release --locked --target ${{ matrix.target }}
-
-      - name: Restore languages.toml
-        run: git checkout languages.toml
 
       - name: Build release binary
         uses: actions-rs/cargo@v1
