@@ -194,7 +194,7 @@ fn build_tree_sitter_library(src_path: &Path, grammar: GrammarConfiguration) -> 
             None
         }
     };
-    let parser_lib_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../runtime/grammars");
+    let parser_lib_path = helix_core::runtime_dir().join("../runtime/grammars");
     let mut library_path = parser_lib_path.join(grammar.grammar_id.clone());
     library_path.set_extension(DYLIB_EXTENSION);
 
