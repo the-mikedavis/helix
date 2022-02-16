@@ -51,7 +51,7 @@ where
     }
 }
 
-pub fn fetch_grammar(grammar: GrammarConfiguration) -> Result<()> {
+fn fetch_grammar(grammar: GrammarConfiguration) -> Result<()> {
     if let GrammarSource::Git { remote, revision } = grammar.source {
         let grammar_dir = helix_core::runtime_dir()
             .join("grammars/sources")
