@@ -91,7 +91,10 @@ fn fetch_grammar(grammar: Grammar) -> Result<()> {
             .join("grammars/sources")
             .join(&grammar.name);
 
-        fs::create_dir_all(grammar_dir.clone()).expect("Could not create grammar directory");
+        fs::create_dir_all(grammar_dir.clone()).context(format!(
+            "Could not create grammar directory {:?}",
+            grammar_dir
+        ))?;
 
         // create the grammar dir contains a git directory
         if !grammar_dir.join(".git").is_dir() {
