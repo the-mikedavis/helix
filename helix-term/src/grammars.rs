@@ -198,7 +198,7 @@ fn build_tree_sitter_library(src_path: &Path, grammar: GrammarConfiguration) -> 
     library_path.set_extension(DYLIB_EXTENSION);
 
     let recompile = needs_recompile(&library_path, &parser_path, &scanner_path)
-        .with_context(|| "Failed to compare source and binary timestamps")?;
+        .context("Failed to compare source and binary timestamps")?;
 
     if !recompile {
         println!("Grammar '{}' is already built.", grammar.grammar_id);
@@ -259,9 +259,7 @@ fn build_tree_sitter_library(src_path: &Path, grammar: GrammarConfiguration) -> 
         }
     }
 
-    let output = command
-        .output()
-        .with_context(|| "Failed to execute C compiler")?;
+    let output = command.output().context("Failed to execute C compiler")?;
     if !output.status.success() {
         return Err(anyhow!(
             "Parser compilation failed.\nStdout: {}\nStderr: {}",
