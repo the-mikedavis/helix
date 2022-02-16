@@ -180,7 +180,6 @@ fn get_grammar_configs() -> Vec<GrammarConfiguration> {
 
 fn build_tree_sitter_library(src_path: &Path, grammar: GrammarConfiguration) -> Result<()> {
     let header_path = src_path;
-    // let grammar_path = src_path.join("grammar.json");
     let parser_path = src_path.join("parser.c");
     let mut scanner_path = src_path.join("scanner.c");
 
