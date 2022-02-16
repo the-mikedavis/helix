@@ -88,12 +88,12 @@ FLAGS:
     }
 
     if args.fetch_grammars {
-        helix_term::grammars::fetch_grammars()?;
+        helix_loader::tree_sitter_grammars::fetch_grammars()?;
         return Ok(0);
     }
 
     if args.build_grammars {
-        helix_term::grammars::build_grammars()?;
+        helix_loader::tree_sitter_grammars::build_grammars()?;
         return Ok(0);
     }
 

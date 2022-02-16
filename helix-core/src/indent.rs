@@ -433,7 +433,8 @@ where
                 comment_token: None,
                 auto_format: false,
                 diagnostic_severity: Severity::Warning,
-                grammar: None,
+                grammar_configuration: None,
+                tree_sitter_library: None,
                 language_server: None,
                 indent: Some(IndentationConfiguration {
                     tab_width: 4,
@@ -443,7 +444,6 @@ where
                 textobject_query: OnceCell::new(),
                 debugger: None,
             }],
-            grammar: vec![],
             grammar_selection: None,
         });
 

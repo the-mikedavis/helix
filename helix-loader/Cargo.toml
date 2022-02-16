@@ -1,0 +1,19 @@
+[package]
+name = "helix-loader"
+version = "0.6.0"
+description = "A post-modern text editor."
+authors = ["Blaž Hrastnik <blaz@mxxn.io>"]
+edition = "2021"
+license = "MPL-2.0"
+categories = ["editor"]
+repository = "https://github.com/helix-editor/helix"
+homepage = "https://helix-editor.com"
+
+[dependencies]
+helix-core = { version = "0.6", path = "../helix-core" }
+
+anyhow = "1"
+
+# cloning/compiling tree-sitter grammars
+cc = { version = "1" }
+threadpool = { version = "1.0" }

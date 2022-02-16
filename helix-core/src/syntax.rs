@@ -1952,7 +1952,6 @@ mod test {
 
         let loader = Loader::new(Configuration {
             language: vec![],
-            grammar: vec![],
             grammar_selection: None,
         });
 

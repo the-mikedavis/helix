@@ -397,6 +397,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "helix-loader"
+version = "0.6.0"
+dependencies = [
+ "anyhow",
+ "cc",
+ "helix-core",
+ "threadpool",
+]
+
+[[package]]
 name = "helix-lsp"
 version = "0.6.0"
 dependencies = [
@@ -419,7 +429,6 @@ name = "helix-term"
 version = "0.6.0"
 dependencies = [
  "anyhow",
- "cc",
  "chrono",
  "content_inspector",
  "crossterm",
@@ -430,6 +439,7 @@ dependencies = [
  "grep-searcher",
  "helix-core",
  "helix-dap",
+ "helix-loader",
  "helix-lsp",
  "helix-tui",
  "helix-view",
@@ -442,7 +452,6 @@ dependencies = [
  "serde_json",
  "signal-hook",
  "signal-hook-tokio",
- "threadpool",
  "tokio",
  "tokio-stream",
  "toml",
