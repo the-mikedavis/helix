@@ -9,20 +9,54 @@ use std::{
 
 use helix_core::syntax::{GrammarConfiguration, GrammarSelection, GrammarSource, DYLIB_EXTENSION};
 
+#[derive(Debug)]
+struct Grammar {
+    pub name: String,
+    pub config: GrammarConfiguration,
+}
+
 const BUILD_TARGET: &str = env!("BUILD_TARGET");
 const REMOTE_NAME: &str = "origin";
 
 pub fn fetch_grammars() -> Result<()> {
-    run_parallel(get_grammar_configs(), fetch_grammar, "fetch")
+    run_parallel(get_grammar_configs()?, fetch_grammar, "fetch")
 }
 
 pub fn build_grammars() -> Result<()> {
-    run_parallel(get_grammar_configs(), build_grammar, "build")
+    run_parallel(get_grammar_configs()?, build_grammar, "build")
 }
 
-fn run_parallel<F>(grammars: Vec<GrammarConfiguration>, job: F, action: &'static str) -> Result<()>
+// Returns the set of grammar configurations the user requests.
+// Grammars are configured in the default and user `languages.toml` and are
+// merged. The `grammar_selection` key of the config is then used to filter
+// down all grammars into a subset of the user's choosing.
+fn get_grammar_configs() -> Result<Vec<Grammar>> {
+    let config =
+        helix_core::config::user_syntax_loader().context("Could not parse languages.toml")?;
+
+    let all_grammars = config.language.into_iter().filter_map(|lang| {
+        lang.grammar_configuration.map(|grammar| Grammar {
+            name: lang.language_id.to_owned(),
+            config: grammar,
+        })
+    });
+
+    let grammars = match config.grammar_selection {
+        Some(GrammarSelection::Only(selections)) => all_grammars
+            .filter(|grammar| selections.contains(&grammar.name))
+            .collect(),
+        Some(GrammarSelection::Except(rejections)) => all_grammars
+            .filter(|grammar| !rejections.contains(&grammar.name))
+            .collect(),
+        None => all_grammars.collect(),
+    };
+
+    Ok(grammars)
+}
+
+fn run_parallel<F>(grammars: Vec<Grammar>, job: F, action: &'static str) -> Result<()>
 where
-    F: Fn(GrammarConfiguration) -> Result<()> + std::marker::Send + 'static + Copy,
+    F: Fn(Grammar) -> Result<()> + std::marker::Send + 'static + Copy,
 {
     let mut n_jobs = 0;
     let pool = threadpool::Builder::new().build();
@@ -33,9 +67,9 @@ where
         n_jobs += 1;
 
         pool.execute(move || {
-            let grammar_id = grammar.grammar_id.clone();
+            let grammar_name = grammar.name.clone();
             job(grammar).unwrap_or_else(|err| {
-                eprintln!("Failed to {} grammar '{}'\n{}", action, grammar_id, err)
+                eprintln!("Failed to {} grammar '{}'\n{}", action, grammar_name, err)
             });
 
             // report progress
@@ -51,11 +85,11 @@ where
     }
 }
 
-fn fetch_grammar(grammar: GrammarConfiguration) -> Result<()> {
-    if let GrammarSource::Git { remote, revision } = grammar.source {
+fn fetch_grammar(grammar: Grammar) -> Result<()> {
+    if let GrammarSource::Git { remote, revision } = grammar.config.source {
         let grammar_dir = helix_core::runtime_dir()
             .join("grammars/sources")
-            .join(grammar.grammar_id.clone());
+            .join(&grammar.name);
 
         fs::create_dir_all(grammar_dir.clone()).expect("Could not create grammar directory");
 
@@ -77,17 +111,14 @@ fn fetch_grammar(grammar: GrammarConfiguration) -> Result<()> {
             git(&grammar_dir, ["fetch", REMOTE_NAME, &revision])?;
             git(&grammar_dir, ["checkout", &revision])?;
 
-            println!(
-                "Grammar '{}' checked out at '{}'.",
-                grammar.grammar_id, revision
-            );
+            println!("Grammar '{}' checked out at '{}'.", grammar.name, revision);
             Ok(())
         } else {
-            println!("Grammar '{}' is already up to date.", grammar.grammar_id);
+            println!("Grammar '{}' is already up to date.", grammar.name);
             Ok(())
         }
     } else {
-        println!("Skipping local grammar '{}'", grammar.grammar_id);
+        println!("Skipping local grammar '{}'", grammar.name);
         Ok(())
     }
 }
@@ -131,13 +162,13 @@ where
     }
 }
 
-fn build_grammar(grammar: GrammarConfiguration) -> Result<()> {
-    let grammar_dir = if let GrammarSource::Local { ref path } = grammar.source {
+fn build_grammar(grammar: Grammar) -> Result<()> {
+    let grammar_dir = if let GrammarSource::Local { ref path } = grammar.config.source {
         PathBuf::from(path)
     } else {
         helix_core::runtime_dir()
             .join("grammars/sources")
-            .join(grammar.grammar_id.clone())
+            .join(&grammar.name)
     };
 
     grammar_dir.read_dir().with_context(|| {
@@ -147,7 +178,7 @@ fn build_grammar(grammar: GrammarConfiguration) -> Result<()> {
         )
     })?;
 
-    let path = match grammar.path {
+    let path = match grammar.config.path {
         Some(ref subpath) => grammar_dir.join(subpath),
         None => grammar_dir,
     }
@@ -156,29 +187,7 @@ fn build_grammar(grammar: GrammarConfiguration) -> Result<()> {
     build_tree_sitter_library(&path, grammar)
 }
 
-// Returns the set of grammar configurations the user requests.
-// Grammars are configured in the default and user `languages.toml` and are
-// merged. The `grammar_selection` key of the config is then used to filter
-// down all grammars into a subset of the user's choosing.
-fn get_grammar_configs() -> Vec<GrammarConfiguration> {
-    let config = helix_core::config::user_syntax_loader().expect("Could not parse languages.toml");
-
-    match config.grammar_selection {
-        Some(GrammarSelection::Only(selections)) => config
-            .grammar
-            .into_iter()
-            .filter(|grammar| selections.contains(&grammar.grammar_id))
-            .collect(),
-        Some(GrammarSelection::Except(rejections)) => config
-            .grammar
-            .into_iter()
-            .filter(|grammar| !rejections.contains(&grammar.grammar_id))
-            .collect(),
-        None => config.grammar,
-    }
-}
-
-fn build_tree_sitter_library(src_path: &Path, grammar: GrammarConfiguration) -> Result<()> {
+fn build_tree_sitter_library(src_path: &Path, grammar: Grammar) -> Result<()> {
     let header_path = src_path;
     let parser_path = src_path.join("parser.c");
     let mut scanner_path = src_path.join("scanner.c");
@@ -194,18 +203,18 @@ fn build_tree_sitter_library(src_path: &Path, grammar: GrammarConfiguration) -> 
         }
     };
     let parser_lib_path = helix_core::runtime_dir().join("../runtime/grammars");
-    let mut library_path = parser_lib_path.join(grammar.grammar_id.clone());
+    let mut library_path = parser_lib_path.join(&grammar.name);
     library_path.set_extension(DYLIB_EXTENSION);
 
     let recompile = needs_recompile(&library_path, &parser_path, &scanner_path)
         .context("Failed to compare source and binary timestamps")?;
 
     if !recompile {
-        println!("Grammar '{}' is already built.", grammar.grammar_id);
+        println!("Grammar '{}' is already built.", grammar.name);
         return Ok(());
     }
 
-    println!("Building grammar '{}'", grammar.grammar_id);
+    println!("Building grammar '{}'", grammar.name);
 
     let mut config = cc::Build::new();
     config
