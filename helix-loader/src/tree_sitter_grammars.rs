@@ -171,12 +171,19 @@ fn build_grammar(grammar: Grammar) -> Result<()> {
             .join(&grammar.name)
     };
 
-    grammar_dir.read_dir().with_context(|| {
+    let grammar_dir_entries = grammar_dir.read_dir().with_context(|| {
         format!(
-            "The directory {:?} is empty, you probably need to use 'hx --fetch-grammars'?",
+            "Failed to read directory {:?}. Did you use 'hx --fetch-grammars'?",
             grammar_dir
         )
     })?;
+
+    if grammar_dir_entries.count() == 0 {
+        return Err(anyhow!(
+            "Directory {:?} is empty. Did you use 'hx --fetch-grammars'?",
+            grammar_dir
+        ));
+    };
 
     let path = match grammar.config.path {
         Some(ref subpath) => grammar_dir.join(subpath),
