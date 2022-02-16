@@ -202,7 +202,7 @@ fn build_tree_sitter_library(src_path: &Path, grammar: Grammar) -> Result<()> {
             None
         }
     };
-    let parser_lib_path = helix_core::runtime_dir().join("../runtime/grammars");
+    let parser_lib_path = helix_core::runtime_dir().join("grammars");
     let mut library_path = parser_lib_path.join(&grammar.name);
     library_path.set_extension(DYLIB_EXTENSION);
 
