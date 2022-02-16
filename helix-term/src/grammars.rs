@@ -140,12 +140,12 @@ fn build_grammar(grammar: GrammarConfiguration) -> Result<()> {
             .join(grammar.grammar_id.clone())
     };
 
-    if grammar_dir.read_dir().is_err() {
-        return Err(anyhow!(
+    grammar_dir.read_dir().with_context(|| {
+        format!(
             "The directory {:?} is empty, you probably need to use 'hx --fetch-grammars'?",
             grammar_dir
-        ));
-    }
+        )
+    })?;
 
     let path = match grammar.path {
         Some(ref subpath) => grammar_dir.join(subpath),
