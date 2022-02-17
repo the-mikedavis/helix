@@ -24,7 +24,6 @@ These are the available keys and descriptions for the file.
 | ----                  | -----------                                                   |
 | `name`                | The name of the language                                      |
 | `scope`               | A string like `source.js` that identifies the language. Currently, we strive to match the scope names used by popular TextMate grammars and by the Linguist library. Usually `source.<name>` or `text.<name>` in case of markup languages |
-| `grammar`             | The configuration of the tree-sitter grammar. See the "Grammar configuration" section below |
 | `injection-regex`     | regex pattern that will be tested against a language name in order to determine whether this language should be used for a potential [language injection][treesitter-language-injection] site. |
 | `file-types`          | The filetypes of the language, for example `["yml", "yaml"]`. Extensions and full file names are supported.  |
 | `shebangs`            | The interpreters from the shebang line, for example `["sh", "bash"]` |
@@ -34,7 +33,7 @@ These are the available keys and descriptions for the file.
 | `comment-token`       | The token to use as a comment-token                           |
 | `indent`              | The indent to use. Has sub keys `tab-width` and `unit`        |
 | `config`              | Language server configuration                                 |
-| `tree-sitter-library` | The name of the tree-sitter grammar to use (defaults to the value of `name`) |
+| `grammar`             | The tree-sitter grammar to use (defaults to the value of `name`) |
 
 ## Grammar configuration
 
@@ -42,29 +41,18 @@ If a tree-sitter grammar is available for the language, add a new `grammar`
 entry to `languages.toml`.
 
 ```toml
-[[language]]
+[[grammar]]
 name = "mylang"
-grammar.source = { git = "https://github.com/example/mylang", rev = "a250c4582510ff34767ec3b7dcdd3c24e8c8aa68" }
-```
-
-If the grammar needs additional configuration, you may use a `[language.grammar]` sub-table.
-
-```toml
-[[language]]
-name = "tsx"
-# ..
-
-[language.grammar]
-source = { git = "..", rev = ".." }
-path = "tsx" # compile the tsx/ directory within the grammar repository
+source = { git = "https://github.com/example/mylang", rev = "a250c4582510ff34767ec3b7dcdd3c24e8c8aa68" }
 ```
 
 Grammar configuration takes these keys:
 
 | Key      | Description                                                              |
 | ---      | -----------                                                              |
-| `source` | The method of fetching the grammar - a table with a schema defined below |
+| `name`   | The name of the tree-sitter grammar                                      |
 | `path`   | A path within the grammar directory which should be built. Some grammar repositories host multiple grammars (for example `tree-sitter-typescript` and `tree-sitter-ocaml`) in subdirectories. This key is used to point `hx --build-grammars` to the correct path for compilation. When ommitted, the root of the grammar directory is used |
+| `source` | The method of fetching the grammar - a table with a schema defined below |
 
 Where `source` is a table with either these keys when using a grammar from a
 git repository:

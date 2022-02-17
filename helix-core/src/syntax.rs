@@ -77,6 +77,7 @@ pub struct Configuration {
     #[serde(rename = "use-grammars")]
     pub grammar_selection: Option<GrammarSelection>,
     pub language: Vec<LanguageConfiguration>,
+    pub grammar: Vec<GrammarConfiguration>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -107,10 +108,7 @@ pub struct LanguageConfiguration {
     #[serde(default)]
     pub diagnostic_severity: Severity,
 
-    #[serde(rename = "grammar")]
-    pub grammar_configuration: Option<GrammarConfiguration>, // tree-sitter grammar configuration, defaults to language_id
-
-    pub tree_sitter_library: Option<String>, // compiled tree-sitter library to use, defaults to language_id
+    pub grammar: Option<String>, // tree-sitter grammar name, defaults to language_id
 
     // content_regex
     #[serde(default, skip_serializing, deserialize_with = "deserialize_regex")]
@@ -217,6 +215,8 @@ pub struct IndentQuery {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GrammarConfiguration {
+    #[serde(rename = "name")]
+    pub grammar_id: String, // c-sharp, rust
     pub source: GrammarSource,
     pub path: Option<String>,
 }
@@ -331,9 +331,7 @@ impl LanguageConfiguration {
         } else {
             let language = get_language(
                 &crate::RUNTIME_DIR,
-                self.tree_sitter_library
-                    .as_deref()
-                    .unwrap_or(&self.language_id),
+                self.grammar.as_deref().unwrap_or(&self.language_id),
             )
             .map_err(|e| log::info!("{}", e))
             .ok()?;
