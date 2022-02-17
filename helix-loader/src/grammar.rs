@@ -1,23 +1,115 @@
 use anyhow::{anyhow, Context, Result};
+use libloading::{Library, Symbol};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::time::SystemTime;
 use std::{
+    collections::HashSet,
     path::{Path, PathBuf},
     process::Command,
     sync::mpsc::channel,
 };
+use tree_sitter::Language;
 
-use helix_core::syntax::{GrammarConfiguration, GrammarSelection, GrammarSource, DYLIB_EXTENSION};
+#[cfg(unix)]
+const DYLIB_EXTENSION: &str = "so";
+
+#[cfg(windows)]
+const DYLIB_EXTENSION: &str = "dll";
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Configuration {
+    pub grammar_selection: Option<GrammarSelection>,
+    pub grammar: Vec<GrammarConfiguration>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase", untagged)]
+pub enum GrammarSelection {
+    Only(HashSet<String>),
+    Except(HashSet<String>),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GrammarConfiguration {
+    #[serde(rename = "name")]
+    pub grammar_id: String,
+    pub source: GrammarSource,
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[serde(untagged)]
+pub enum GrammarSource {
+    Local {
+        path: String,
+    },
+    Git {
+        #[serde(rename = "git")]
+        remote: String,
+        #[serde(rename = "rev")]
+        revision: String,
+    },
+}
 
 const BUILD_TARGET: &str = env!("BUILD_TARGET");
 const REMOTE_NAME: &str = "origin";
 
+fn replace_dashes_with_underscores(name: &str) -> String {
+    name.replace('-', "_")
+}
+
+pub fn get_language(name: &str) -> Result<Language> {
+    let name = name.to_ascii_lowercase();
+    let mut library_path = crate::runtime_dir().join("grammars").join(&name);
+    library_path.set_extension(DYLIB_EXTENSION);
+
+    let library = unsafe { Library::new(&library_path) }
+        .with_context(|| format!("Error opening dynamic library {:?}", &library_path))?;
+    let language_fn_name = format!("tree_sitter_{}", replace_dashes_with_underscores(&name));
+    let language = unsafe {
+        let language_fn: Symbol<unsafe extern "C" fn() -> Language> = library
+            .get(language_fn_name.as_bytes())
+            .with_context(|| format!("Failed to load symbol {}", language_fn_name))?;
+        language_fn()
+    };
+    std::mem::forget(library);
+    Ok(language)
+}
+
 pub fn fetch_grammars() -> Result<()> {
-    run_parallel(get_grammar_configs(), fetch_grammar, "fetch")
+    run_parallel(get_grammar_configs()?, fetch_grammar, "fetch")
 }
 
 pub fn build_grammars() -> Result<()> {
-    run_parallel(get_grammar_configs(), build_grammar, "build")
+    run_parallel(get_grammar_configs()?, build_grammar, "build")
+}
+
+// Returns the set of grammar configurations the user requests.
+// Grammars are configured in the default and user `languages.toml` and are
+// merged. The `grammar_selection` key of the config is then used to filter
+// down all grammars into a subset of the user's choosing.
+fn get_grammar_configs() -> Result<Vec<GrammarConfiguration>> {
+    let config: Configuration = crate::user_lang_config()
+        .context("Could not parse languages.toml")?
+        .try_into()?;
+
+    let grammars = match config.grammar_selection {
+        Some(GrammarSelection::Only(selections)) => config
+            .grammar
+            .into_iter()
+            .filter(|grammar| selections.contains(&grammar.grammar_id))
+            .collect(),
+        Some(GrammarSelection::Except(rejections)) => config
+            .grammar
+            .into_iter()
+            .filter(|grammar| !rejections.contains(&grammar.grammar_id))
+            .collect(),
+        None => config.grammar,
+    };
+
+    Ok(grammars)
 }
 
 fn run_parallel<F>(grammars: Vec<GrammarConfiguration>, job: F, action: &'static str) -> Result<()>
@@ -53,7 +145,7 @@ where
 
 fn fetch_grammar(grammar: GrammarConfiguration) -> Result<()> {
     if let GrammarSource::Git { remote, revision } = grammar.source {
-        let grammar_dir = helix_core::runtime_dir()
+        let grammar_dir = crate::runtime_dir()
             .join("grammars/sources")
             .join(&grammar.grammar_id);
 
@@ -138,7 +230,7 @@ fn build_grammar(grammar: GrammarConfiguration) -> Result<()> {
     let grammar_dir = if let GrammarSource::Local { ref path } = grammar.source {
         PathBuf::from(path)
     } else {
-        helix_core::runtime_dir()
+        crate::runtime_dir()
             .join("grammars/sources")
             .join(&grammar.grammar_id)
     };
@@ -166,28 +258,6 @@ fn build_grammar(grammar: GrammarConfiguration) -> Result<()> {
     build_tree_sitter_library(&path, grammar)
 }
 
-// Returns the set of grammar configurations the user requests.
-// Grammars are configured in the default and user `languages.toml` and are
-// merged. The `grammar_selection` key of the config is then used to filter
-// down all grammars into a subset of the user's choosing.
-fn get_grammar_configs() -> Vec<GrammarConfiguration> {
-    let config = helix_core::config::user_syntax_loader().expect("Could not parse languages.toml");
-
-    match config.grammar_selection {
-        Some(GrammarSelection::Only(selections)) => config
-            .grammar
-            .into_iter()
-            .filter(|grammar| selections.contains(&grammar.grammar_id))
-            .collect(),
-        Some(GrammarSelection::Except(rejections)) => config
-            .grammar
-            .into_iter()
-            .filter(|grammar| !rejections.contains(&grammar.grammar_id))
-            .collect(),
-        None => config.grammar,
-    }
-}
-
 fn build_tree_sitter_library(src_path: &Path, grammar: GrammarConfiguration) -> Result<()> {
     let header_path = src_path;
     let parser_path = src_path.join("parser.c");
@@ -203,7 +273,7 @@ fn build_tree_sitter_library(src_path: &Path, grammar: GrammarConfiguration) -> 
             None
         }
     };
-    let parser_lib_path = helix_core::runtime_dir().join("grammars");
+    let parser_lib_path = crate::runtime_dir().join("grammars");
     let mut library_path = parser_lib_path.join(&grammar.grammar_id);
     library_path.set_extension(DYLIB_EXTENSION);
 
@@ -303,4 +373,12 @@ fn needs_recompile(
 
 fn mtime(path: &Path) -> Result<SystemTime> {
     Ok(fs::metadata(path)?.modified()?)
+}
+
+pub fn load_runtime_file(language: &str, filename: &str) -> Result<String, std::io::Error> {
+    let path = crate::RUNTIME_DIR
+        .join("queries")
+        .join(language)
+        .join(filename);
+    std::fs::read_to_string(&path)
 }

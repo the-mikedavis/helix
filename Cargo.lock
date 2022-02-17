@@ -362,8 +362,7 @@ dependencies = [
  "arc-swap",
  "chrono",
  "encoding_rs",
- "etcetera",
- "libloading",
+ "helix-loader",
  "log",
  "once_cell",
  "quickcheck",
@@ -402,8 +401,13 @@ version = "0.6.0"
 dependencies = [
  "anyhow",
  "cc",
- "helix-core",
+ "etcetera",
+ "libloading",
+ "once_cell",
+ "serde",
  "threadpool",
+ "toml",
+ "tree-sitter",
 ]
 
 [[package]]

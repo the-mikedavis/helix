@@ -433,8 +433,7 @@ where
                 comment_token: None,
                 auto_format: false,
                 diagnostic_severity: Severity::Warning,
-                grammar_configuration: None,
-                tree_sitter_library: None,
+                grammar: None,
                 language_server: None,
                 indent: Some(IndentationConfiguration {
                     tab_width: 4,
@@ -444,7 +443,6 @@ where
                 textobject_query: OnceCell::new(),
                 debugger: None,
             }],
-            grammar_selection: None,
         });
 
         // set runtime path so we can find the queries

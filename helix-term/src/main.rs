@@ -40,7 +40,7 @@ fn main() -> Result<()> {
 
 #[tokio::main]
 async fn main_impl() -> Result<i32> {
-    let cache_dir = helix_core::cache_dir();
+    let cache_dir = helix_loader::cache_dir();
     if !cache_dir.exists() {
         std::fs::create_dir_all(&cache_dir).ok();
     }
@@ -88,16 +88,16 @@ FLAGS:
     }
 
     if args.fetch_grammars {
-        helix_loader::tree_sitter_grammars::fetch_grammars()?;
+        helix_loader::grammar::fetch_grammars()?;
         return Ok(0);
     }
 
     if args.build_grammars {
-        helix_loader::tree_sitter_grammars::build_grammars()?;
+        helix_loader::grammar::build_grammars()?;
         return Ok(0);
     }
 
-    let conf_dir = helix_core::config_dir();
+    let conf_dir = helix_loader::config_dir();
     if !conf_dir.exists() {
         std::fs::create_dir_all(&conf_dir).ok();
     }
