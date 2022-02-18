@@ -41,8 +41,7 @@ pub struct GrammarConfiguration {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-#[serde(untagged)]
+#[serde(rename_all = "lowercase", untagged)]
 pub enum GrammarSource {
     Local {
         path: String,
