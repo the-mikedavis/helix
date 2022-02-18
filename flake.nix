@@ -21,15 +21,18 @@
       defaultOutputs = { app = "hx"; package = "helix"; };
       overrides = {
         crateOverrides = common: _: rec {
-          # link languages and theme toml files since helix-core/helix-view expects them
-          helix-core = _: { preConfigure = "ln -s ${common.root}/{languages.toml,theme.toml,base16_theme.toml} .."; };
-          helix-view = _: { preConfigure = "ln -s ${common.root}/{languages.toml,theme.toml,base16_theme.toml} .."; };
+          # link languages and theme toml files since helix-loader/helix-view expects them
+          helix-loader = _: { preConfigure = "ln -s ${common.root}/languages.toml .."; };
+          helix-view = _: { preConfigure = "ln -s ${common.root}/{theme.toml,base16_theme.toml} .."; };
           helix-term = prev:
             let
-              inherit (common) pkgs lib;
+              inherit (common) pkgs;
+              grammars = pkgs.callPackage ./grammars.nix { };
               runtimeDir = pkgs.runCommand "helix-runtime" { } ''
                 mkdir -p $out
                 ln -s ${common.root}/runtime/* $out
+                rm -r $out/grammars
+                ln -s ${grammars} $out/grammars
               '';
             in
             {
@@ -37,6 +40,7 @@
               preConfigure = "ln -s ${common.root}/{languages.toml,theme.toml,base16_theme.toml} ..";
               buildInputs = (prev.buildInputs or [ ]) ++ [ common.cCompiler.cc.lib ];
               nativeBuildInputs = [ pkgs.makeWrapper ];
+
               postFixup = ''
                 if [ -f "$out/bin/hx" ]; then
                   wrapProgram "$out/bin/hx" --set HELIX_RUNTIME "${runtimeDir}"
