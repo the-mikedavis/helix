@@ -376,6 +376,8 @@ fn mtime(path: &Path) -> Result<SystemTime> {
     Ok(fs::metadata(path)?.modified()?)
 }
 
+/// Gives the contents of a file from a language's `runtime/queries/<lang>`
+/// directory
 pub fn load_runtime_file(language: &str, filename: &str) -> Result<String, std::io::Error> {
     let path = crate::RUNTIME_DIR
         .join("queries")
