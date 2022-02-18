@@ -11,7 +11,6 @@ let
     builtins.hasAttr "source" grammar && builtins.hasAttr "git" grammar.source
     && builtins.hasAttr "rev" grammar.source);
   gitGrammars = builtins.filter isGitGrammar languagesConfig.grammar;
-  underscoreName = builtins.replaceStrings [ "-" ] [ "_" ];
   buildGrammar = grammar:
     let
       source = builtins.fetchGit {
@@ -50,7 +49,7 @@ let
         "-Wl,-z,relro,-z,now"
       ];
 
-      NAME = underscoreName grammar.name;
+      NAME = grammar.name;
 
       buildPhase = ''
         runHook preBuild
@@ -84,7 +83,7 @@ let
       '';
     };
   builtGrammars = builtins.map (grammar: {
-    name = underscoreName grammar.name;
+    inherit (grammar) name;
     artifact = buildGrammar grammar;
   }) gitGrammars;
   grammarLinks = builtins.map (grammar:
