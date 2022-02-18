@@ -32,15 +32,7 @@ let
       dontUnpack = true;
       dontConfigure = true;
 
-      CFLAGS = [
-        "-I${src}/src"
-        "-g"
-        "-O3"
-        "-fPIC"
-        "-fno-exceptions"
-        "-Wl,-z,relro,-z,now"
-      ];
-      CXXFLAGS = [
+      FLAGS = [
         "-I${src}/src"
         "-g"
         "-O3"
@@ -55,12 +47,12 @@ let
         runHook preBuild
 
         if [[ -e "$src/src/scanner.cc" ]]; then
-          $CXX -c "$src/src/scanner.cc" -o scanner.o $CXXFLAGS
+          $CXX -c "$src/src/scanner.cc" -o scanner.o $FLAGS
         elif [[ -e "$src/src/scanner.c" ]]; then
-          $CC -c "$src/src/scanner.c" -o scanner.o $CFLAGS
+          $CC -c "$src/src/scanner.c" -o scanner.o $FLAGS
         fi
 
-        $CC -c "$src/src/parser.c" -o parser.o $CFLAGS
+        $CC -c "$src/src/parser.c" -o parser.o $FLAGS
         $CXX -shared -o $NAME.so *.o
 
         ls -al
