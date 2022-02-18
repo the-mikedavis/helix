@@ -117,30 +117,27 @@ fn run_parallel<F>(grammars: Vec<GrammarConfiguration>, job: F, action: &'static
 where
     F: Fn(GrammarConfiguration) -> Result<()> + std::marker::Send + 'static + Copy,
 {
-    let mut n_jobs = 0;
     let pool = threadpool::Builder::new().build();
     let (tx, rx) = channel();
 
     for grammar in grammars {
         let tx = tx.clone();
-        n_jobs += 1;
 
         pool.execute(move || {
-            let grammar_id = grammar.grammar_id.clone();
-            job(grammar).unwrap_or_else(|err| {
-                eprintln!("Failed to {} grammar '{}'\n{}", action, grammar_id, err)
-            });
-
-            // report progress
-            tx.send(1).unwrap();
+            tx.send(job(grammar)).unwrap();
         });
     }
     pool.join();
 
-    if rx.try_iter().sum::<usize>() == n_jobs {
-        Ok(())
+    // TODO: print all failures instead of the first one found.
+    if let Some(failure) = rx.try_iter().find_map(|result| result.err()) {
+        Err(anyhow!(
+            "Failed to {} some grammar(s).\n{}",
+            action,
+            failure
+        ))
     } else {
-        Err(anyhow!("Failed to {} some grammar(s).", action))
+        Ok(())
     }
 }
 
