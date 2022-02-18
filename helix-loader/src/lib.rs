@@ -1,5 +1,8 @@
 pub mod grammar;
 
+use etcetera::base_strategy::{choose_base_strategy, BaseStrategy};
+pub use etcetera::home_dir;
+
 pub static RUNTIME_DIR: once_cell::sync::Lazy<std::path::PathBuf> =
     once_cell::sync::Lazy::new(runtime_dir);
 
@@ -145,7 +148,3 @@ mod merge_toml_tests {
         assert_eq!(nix.get("comment-token").unwrap().as_str().unwrap(), "#");
     }
 }
-
-pub use etcetera::home_dir;
-
-use etcetera::base_strategy::{choose_base_strategy, BaseStrategy};
