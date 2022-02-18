@@ -46,7 +46,6 @@ where
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct Configuration {
-    #[serde(rename = "use-grammars")]
     pub language: Vec<LanguageConfiguration>,
 }
 

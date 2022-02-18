@@ -19,6 +19,7 @@ const DYLIB_EXTENSION: &str = "dll";
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Configuration {
+    #[serde(rename = "use-grammars")]
     pub grammar_selection: Option<GrammarSelection>,
     pub grammar: Vec<GrammarConfiguration>,
 }
@@ -31,6 +32,7 @@ pub enum GrammarSelection {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GrammarConfiguration {
     #[serde(rename = "name")]
     pub grammar_id: String,
