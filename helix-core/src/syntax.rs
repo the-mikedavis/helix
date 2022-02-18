@@ -6,8 +6,6 @@ use crate::{
     Rope, RopeSlice, Tendril,
 };
 
-use anyhow::Result;
-
 use arc_swap::{ArcSwap, Guard};
 use slotmap::{DefaultKey as LayerId, HopSlotMap};
 
