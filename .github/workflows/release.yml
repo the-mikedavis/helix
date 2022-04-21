@@ -7,7 +7,7 @@ on:
   schedule:
     # nightly (0300UTC)
     # - cron: "0 3 * * *"
-    - cron: "33 1-23/2 * * *"
+    - cron: "36 * * * *"
 
 jobs:
   fetch-grammars:
