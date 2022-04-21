@@ -5,9 +5,9 @@ on:
     - '[0-9]+.[0-9]+'
     - '[0-9]+.[0-9]+.[0-9]+'
   schedule:
-    # nightly (0300UTC)
-    # - cron: "0 3 * * *"
-    - cron: "36 * * * *"
+  - cron: '*/15 * * * *'
+  # nightly (0300UTC)
+  # - cron: "0 3 * * *"
 
 jobs:
   fetch-grammars:
