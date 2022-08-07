@@ -976,6 +976,83 @@ impl Syntax {
         result
     }
 
+    /// Iterate over the rainbow-highlighted regions for a given slice of source code.
+    pub fn rainbow_iter<'a>(
+        &'a self,
+        source: RopeSlice<'a>,
+        range: Option<std::ops::Range<usize>>,
+        cancellation_flag: Option<&'a AtomicUsize>,
+    ) -> impl Iterator<Item = Result<HighlightEvent, Error>> + 'a {
+        let mut layers = self
+            .layers
+            .iter()
+            .filter_map(|(_, layer)| {
+                // TODO: if range doesn't overlap layer range, skip it
+
+                // Reuse a cursor from the pool if available.
+                let mut cursor = PARSER.with(|ts_parser| {
+                    let highlighter = &mut ts_parser.borrow_mut();
+                    highlighter.cursors.pop().unwrap_or_else(QueryCursor::new)
+                });
+
+                // The `captures` iterator borrows the `Tree` and the `QueryCursor`, which
+                // prevents them from being moved. But both of these values are really just
+                // pointers, so it's actually ok to move them.
+                let cursor_ref =
+                    unsafe { mem::transmute::<_, &'static mut QueryCursor>(&mut cursor) };
+
+                // if reusing cursors & no range this resets to whole range
+                cursor_ref.set_byte_range(range.clone().unwrap_or(0..usize::MAX));
+
+                let mut captures = cursor_ref
+                    .captures(
+                        &layer.config.query,
+                        layer.tree().root_node(),
+                        RopeProvider(source),
+                    )
+                    .peekable();
+
+                // If there's no captures, skip the layer
+                captures.peek()?;
+
+                Some(HighlightIterLayer {
+                    highlight_end_stack: Vec::new(),
+                    scope_stack: vec![LocalScope {
+                        inherits: false,
+                        range: 0..usize::MAX,
+                        local_defs: Vec::new(),
+                    }],
+                    cursor,
+                    _tree: None,
+                    captures,
+                    config: layer.config.as_ref(), // TODO: just reuse `layer`
+                    depth: layer.depth,            // TODO: just reuse `layer`
+                    ranges: &layer.ranges,         // TODO: temp
+                })
+            })
+            .collect::<Vec<_>>();
+
+        // HAXX: arrange layers by byte range, with deeper layers positioned first
+        layers.sort_by_key(|layer| {
+            (
+                layer.ranges.first().cloned(),
+                std::cmp::Reverse(layer.depth),
+            )
+        });
+
+        let mut result = HighlightIter {
+            source,
+            byte_offset: range.map_or(0, |r| r.start),
+            cancellation_flag,
+            iter_count: 0,
+            layers,
+            next_event: None,
+            last_highlight_range: None,
+        };
+        result.sort_layers();
+        result
+    }
+
     // Commenting
     // comment_strings_for_pos
     // is_commented

@@ -306,8 +306,7 @@ impl EditorView {
                 let syntax_node_range = syntax_node_start..visible_end;
 
                 let iter = syntax
-                    // TODO: range doesn't actually restrict source, just highlight range
-                    .highlight_iter(text.slice(..), Some(syntax_node_range), None)
+                    .rainbow_iter(text.slice(..), Some(syntax_node_range), None)
                     .map(|event| event.unwrap())
                     .filter_map(move |event| match event {
                         HighlightEvent::Source { start, end } => {
