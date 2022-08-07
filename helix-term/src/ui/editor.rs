@@ -271,6 +271,60 @@ impl EditorView {
         }
     }
 
+    /// Get rainbow highlights for a document in a view represented by the first line
+    /// and column (`offset`) and the last line.
+    pub fn doc_rainbow_highlights<'doc>(
+        doc: &'doc Document,
+        offset: Position,
+        height: u16,
+        _theme: &Theme,
+    ) -> Box<dyn Iterator<Item = HighlightEvent> + 'doc> {
+        let text = doc.text().slice(..);
+        let last_line = std::cmp::min(
+            // Saturating subs to make it inclusive zero indexing.
+            (offset.row + height as usize).saturating_sub(1),
+            doc.text().len_lines().saturating_sub(1),
+        );
+
+        let range = {
+            // calculate viewport byte ranges
+            let start = text.line_to_byte(offset.row);
+            let end = text.line_to_byte(last_line + 1);
+
+            start..end
+        };
+
+        match doc.syntax() {
+            Some(syntax) => {
+                let iter = syntax
+                    // TODO: range doesn't actually restrict source, just highlight range
+                    .highlight_iter(text.slice(..), Some(range), None)
+                    .map(|event| event.unwrap())
+                    .map(move |event| match event {
+                        // TODO: use byte slices directly
+                        // convert byte offsets to char offset
+                        HighlightEvent::Source { start, end } => {
+                            let start =
+                                text.byte_to_char(ensure_grapheme_boundary_next_byte(text, start));
+                            let end =
+                                text.byte_to_char(ensure_grapheme_boundary_next_byte(text, end));
+                            HighlightEvent::Source { start, end }
+                        }
+                        event => event,
+                    });
+
+                Box::new(iter)
+            }
+            None => Box::new(
+                [HighlightEvent::Source {
+                    start: text.byte_to_char(range.start),
+                    end: text.byte_to_char(range.end),
+                }]
+                .into_iter(),
+            ),
+        }
+    }
+
     /// Get highlight spans for document diagnostics
     pub fn doc_diagnostics_highlights(
         doc: &Document,
