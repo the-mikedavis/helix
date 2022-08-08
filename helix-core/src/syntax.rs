@@ -361,6 +361,8 @@ impl LanguageConfiguration {
         // always highlight syntax errors
         // highlights_query += "\n(ERROR) @error";
 
+        let rainbows_query = read_query(&language, "rainbows.scm");
+
         let injections_query = read_query(&language, "injections.scm");
         let locals_query = read_query(&language, "locals.scm");
 
@@ -373,6 +375,7 @@ impl LanguageConfiguration {
             let config = HighlightConfiguration::new(
                 language,
                 &highlights_query,
+                &rainbows_query,
                 &injections_query,
                 &locals_query,
             )
@@ -1275,7 +1278,8 @@ pub enum HighlightEvent {
 #[derive(Debug)]
 pub struct HighlightConfiguration {
     pub language: Grammar,
-    pub query: Query,
+    query: Query,
+    rainbow_query: Query,
     injections_query: Query,
     combined_injections_query: Option<Query>,
     highlights_pattern_index: usize,
@@ -1372,6 +1376,7 @@ impl HighlightConfiguration {
     pub fn new(
         language: Grammar,
         highlights_query: &str,
+        rainbow_query: &str,
         injection_query: &str,
         locals_query: &str,
     ) -> Result<Self, QueryError> {
@@ -1391,6 +1396,7 @@ impl HighlightConfiguration {
                 highlights_pattern_index += 1;
             }
         }
+        let rainbow_query = Query::new(language, rainbow_query)?;
 
         let mut injections_query = Query::new(language, injection_query)?;
 
@@ -1455,6 +1461,7 @@ impl HighlightConfiguration {
         Ok(Self {
             language,
             query,
+            rainbow_query,
             injections_query,
             combined_injections_query,
             highlights_pattern_index,
@@ -2139,7 +2146,7 @@ mod test {
         let textobject = TextObjectQuery { query };
         let mut cursor = QueryCursor::new();
 
-        let config = HighlightConfiguration::new(language, "", "", "").unwrap();
+        let config = HighlightConfiguration::new(language, "", "", "", "").unwrap();
         let syntax = Syntax::new(&source, Arc::new(config), Arc::new(loader));
 
         let root = syntax.tree().root_node();
@@ -2198,6 +2205,7 @@ mod test {
             language,
             &std::fs::read_to_string("../runtime/grammars/sources/rust/queries/highlights.scm")
                 .unwrap(),
+            "", // rainbows.scm
             &std::fs::read_to_string("../runtime/grammars/sources/rust/queries/injections.scm")
                 .unwrap(),
             "", // locals.scm
