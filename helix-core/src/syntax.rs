@@ -985,6 +985,7 @@ impl Syntax {
         source: RopeSlice<'a>,
         range: Option<std::ops::Range<usize>>,
         cancellation_flag: Option<&'a AtomicUsize>,
+        rainbow_length: usize,
     ) -> impl Iterator<Item = Result<HighlightEvent, Error>> + 'a {
         let mut layers = self
             .layers
@@ -1009,7 +1010,7 @@ impl Syntax {
 
                 let mut captures = cursor_ref
                     .captures(
-                        &layer.config.query,
+                        &layer.config.rainbow_query,
                         layer.tree().root_node(),
                         RopeProvider(source),
                     )
@@ -1018,13 +1019,8 @@ impl Syntax {
                 // If there's no captures, skip the layer
                 captures.peek()?;
 
-                Some(HighlightIterLayer {
+                Some(RainbowIterLayer {
                     highlight_end_stack: Vec::new(),
-                    scope_stack: vec![LocalScope {
-                        inherits: false,
-                        range: 0..usize::MAX,
-                        local_defs: Vec::new(),
-                    }],
                     cursor,
                     _tree: None,
                     captures,
@@ -1043,7 +1039,7 @@ impl Syntax {
             )
         });
 
-        let mut result = HighlightIter {
+        let mut result = RainbowIter {
             source,
             byte_offset: range.map_or(0, |r| r.start),
             cancellation_flag,
@@ -1051,6 +1047,9 @@ impl Syntax {
             layers,
             next_event: None,
             last_highlight_range: None,
+            match_highlights: HashMap::new(),
+            rainbow_length,
+            rainbow_nesting_level: 0,
         };
         result.sort_layers();
         result
@@ -1291,6 +1290,7 @@ pub struct HighlightConfiguration {
     local_def_capture_index: Option<u32>,
     local_def_value_capture_index: Option<u32>,
     local_ref_capture_index: Option<u32>,
+    rainbow_capture_index: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -1316,6 +1316,21 @@ struct HighlightIter<'a> {
     iter_count: usize,
     next_event: Option<HighlightEvent>,
     last_highlight_range: Option<(usize, usize, u32)>,
+}
+
+#[derive(Debug)]
+struct RainbowIter<'a> {
+    source: RopeSlice<'a>,
+    byte_offset: usize,
+    cancellation_flag: Option<&'a AtomicUsize>,
+    layers: Vec<RainbowIterLayer<'a>>,
+    iter_count: usize,
+    next_event: Option<HighlightEvent>,
+    // TODO check needed
+    last_highlight_range: Option<(usize, usize, usize)>,
+    match_highlights: HashMap<u32, Highlight>,
+    rainbow_length: usize,
+    rainbow_nesting_level: usize,
 }
 
 // Adapter to convert rope chunks to bytes
@@ -1355,6 +1370,22 @@ struct HighlightIterLayer<'a> {
 impl<'a> fmt::Debug for HighlightIterLayer<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("HighlightIterLayer").finish()
+    }
+}
+
+struct RainbowIterLayer<'a> {
+    _tree: Option<Tree>, // TODO remove
+    cursor: QueryCursor,
+    captures: iter::Peekable<QueryCaptures<'a, 'a, RopeProvider<'a>>>,
+    config: &'a HighlightConfiguration,
+    highlight_end_stack: Vec<usize>,
+    depth: usize,
+    ranges: &'a [Range],
+}
+
+impl<'a> fmt::Debug for RainbowIterLayer<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RainbowIterLayer").finish()
     }
 }
 
@@ -1437,6 +1468,7 @@ impl HighlightConfiguration {
         let mut local_def_value_capture_index = None;
         let mut local_ref_capture_index = None;
         let mut local_scope_capture_index = None;
+        let mut rainbow_capture_index = None;
         for (i, name) in query.capture_names().iter().enumerate() {
             let i = Some(i as u32);
             match name.as_str() {
@@ -1445,6 +1477,11 @@ impl HighlightConfiguration {
                 "local.reference" => local_ref_capture_index = i,
                 "local.scope" => local_scope_capture_index = i,
                 _ => {}
+            }
+        }
+        for (i, name) in rainbow_query.capture_names().iter().enumerate() {
+            if name.as_str() == "rainbow" {
+                rainbow_capture_index = Some(i as u32);
             }
         }
 
@@ -1473,6 +1510,7 @@ impl HighlightConfiguration {
             local_def_capture_index,
             local_def_value_capture_index,
             local_ref_capture_index,
+            rainbow_capture_index,
         })
     }
 
@@ -1530,6 +1568,33 @@ impl HighlightConfiguration {
 }
 
 impl<'a> HighlightIterLayer<'a> {
+    // First, sort scope boundaries by their byte offset in the document. At a
+    // given position, emit scope endings before scope beginnings. Finally, emit
+    // scope boundaries from deeper layers first.
+    fn sort_key(&mut self) -> Option<(usize, bool, isize)> {
+        let depth = -(self.depth as isize);
+        let next_start = self
+            .captures
+            .peek()
+            .map(|(m, i)| m.captures[*i].node.start_byte());
+        let next_end = self.highlight_end_stack.last().cloned();
+        match (next_start, next_end) {
+            (Some(start), Some(end)) => {
+                if start < end {
+                    Some((start, true, depth))
+                } else {
+                    Some((end, false, depth))
+                }
+            }
+            (Some(i), None) => Some((i, true, depth)),
+            (None, Some(j)) => Some((j, false, depth)),
+            _ => None,
+        }
+    }
+}
+
+// TODO duplicated
+impl<'a> RainbowIterLayer<'a> {
     // First, sort scope boundaries by their byte offset in the document. At a
     // given position, emit scope endings before scope beginnings. Finally, emit
     // scope boundaries from deeper layers first.
@@ -1925,6 +1990,189 @@ impl<'a> Iterator for HighlightIter<'a> {
 
             // Emit a scope start event and push the node's end position to the stack.
             if let Some(highlight) = reference_highlight.or(current_highlight) {
+                self.last_highlight_range = Some((range.start, range.end, layer.depth));
+                layer.highlight_end_stack.push(range.end);
+                return self
+                    .emit_event(range.start, Some(HighlightEvent::HighlightStart(highlight)));
+            }
+
+            self.sort_layers();
+        }
+    }
+}
+
+impl<'a> RainbowIter<'a> {
+    fn emit_event(
+        &mut self,
+        offset: usize,
+        event: Option<HighlightEvent>,
+    ) -> Option<Result<HighlightEvent, Error>> {
+        let result;
+        if self.byte_offset < offset {
+            result = Some(Ok(HighlightEvent::Source {
+                start: self.byte_offset,
+                end: offset,
+            }));
+            self.byte_offset = offset;
+            self.next_event = event;
+        } else {
+            result = event.map(Ok);
+        }
+        self.sort_layers();
+        result
+    }
+
+    fn sort_layers(&mut self) {
+        while !self.layers.is_empty() {
+            if let Some(sort_key) = self.layers[0].sort_key() {
+                let mut i = 0;
+                while i + 1 < self.layers.len() {
+                    if let Some(next_offset) = self.layers[i + 1].sort_key() {
+                        if next_offset < sort_key {
+                            i += 1;
+                            continue;
+                        }
+                    } else {
+                        let layer = self.layers.remove(i + 1);
+                        PARSER.with(|ts_parser| {
+                            let highlighter = &mut ts_parser.borrow_mut();
+                            highlighter.cursors.push(layer.cursor);
+                        });
+                    }
+                    break;
+                }
+                if i > 0 {
+                    self.layers[0..(i + 1)].rotate_left(1);
+                }
+                break;
+            } else {
+                let layer = self.layers.remove(0);
+                PARSER.with(|ts_parser| {
+                    let highlighter = &mut ts_parser.borrow_mut();
+                    highlighter.cursors.push(layer.cursor);
+                });
+            }
+        }
+    }
+}
+
+impl<'a> Iterator for RainbowIter<'a> {
+    type Item = Result<HighlightEvent, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        'main: loop {
+            // If we've already determined the next highlight boundary, just return it.
+            if let Some(e) = self.next_event.take() {
+                return Some(Ok(e));
+            }
+
+            // Periodically check for cancellation, returning `Cancelled` error if the
+            // cancellation flag was flipped.
+            if let Some(cancellation_flag) = self.cancellation_flag {
+                self.iter_count += 1;
+                if self.iter_count >= CANCELLATION_CHECK_INTERVAL {
+                    self.iter_count = 0;
+                    if cancellation_flag.load(Ordering::Relaxed) != 0 {
+                        return Some(Err(Error::Cancelled));
+                    }
+                }
+            }
+
+            // If none of the layers have any more highlight boundaries, terminate.
+            if self.layers.is_empty() {
+                return None;
+            }
+
+            // Get the next capture from whichever layer has the earliest highlight boundary.
+            let range;
+            let layer = &mut self.layers[0];
+            if let Some((next_match, capture_index)) = layer.captures.peek() {
+                let next_capture = next_match.captures[*capture_index];
+                range = next_capture.node.byte_range();
+
+                // If any previous highlight ends before this node starts, then before
+                // processing this capture, emit the source code up until the end of the
+                // previous highlight, and an end event for that highlight.
+                if let Some(end_byte) = layer.highlight_end_stack.last().cloned() {
+                    if end_byte <= range.start {
+                        layer.highlight_end_stack.pop();
+                        return self.emit_event(end_byte, Some(HighlightEvent::HighlightEnd));
+                    }
+                }
+            }
+            // If there are no more captures, then emit any remaining highlight end events.
+            // And if there are none of those, then just advance to the end of the document.
+            else if let Some(end_byte) = layer.highlight_end_stack.last().cloned() {
+                layer.highlight_end_stack.pop();
+                return self.emit_event(end_byte, Some(HighlightEvent::HighlightEnd));
+            } else {
+                return self.emit_event(self.source.len_bytes(), None);
+            };
+
+            let (match_, capture_index) = layer.captures.next().unwrap();
+            let capture = match_.captures[capture_index];
+
+            // Otherwise, this capture must represent a highlight.
+            // If this exact range has already been highlighted by an earlier pattern, or by
+            // a different layer, then skip over this one.
+            if let Some((last_start, last_end, last_depth)) = self.last_highlight_range {
+                if range.start == last_start && range.end == last_end && layer.depth < last_depth {
+                    self.sort_layers();
+                    continue 'main;
+                }
+            }
+
+            // If the capture corresponds to the `@rainbow` scope, lookup the match
+            // in the `match_highlights` map. Otherwise, use the highlight from
+            // attempt to replace its default
+            let rainbow_highlight = if layer.config.rainbow_capture_index == Some(capture.index) {
+                if self.rainbow_length > 0 {
+                    if capture_index == 0 {
+                        // Initial capture in the match, add the entry and increment
+                        // nesting level, wrapping around to the first rainbow color.
+                        let next_highlight = Highlight(self.rainbow_nesting_level);
+
+                        self.rainbow_nesting_level =
+                            (self.rainbow_nesting_level + 1) % self.rainbow_length;
+
+                        self.match_highlights.insert(match_.id(), next_highlight);
+
+                        Some(next_highlight)
+                    } else if capture_index == match_.captures.len() - 1 {
+                        // Final capture in the match, remove the entry and decrement
+                        // nesting level, wrapping around to the last rainbow color.
+                        self.rainbow_nesting_level = self
+                            .rainbow_nesting_level
+                            .checked_sub(1)
+                            .unwrap_or(self.rainbow_length - 1);
+
+                        self.match_highlights.remove(&match_.id())
+                    } else {
+                        // Any nodes between the first and last re-use the highlight.
+                        self.match_highlights.get(&match_.id()).copied()
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Once a highlighting pattern is found for the current node, skip over
+            // any later highlighting patterns that also match this node. Captures
+            // for a given node are ordered by pattern index, so these subsequent
+            // captures are guaranteed to be for highlighting, not injections or
+            // local variables.
+            while let Some((next_match, next_capture_index)) = layer.captures.peek() {
+                let next_capture = next_match.captures[*next_capture_index];
+                if next_capture.node == capture.node {
+                    layer.captures.next();
+                } else {
+                    break;
+                }
+            }
+
+            if let Some(highlight) = rainbow_highlight {
                 self.last_highlight_range = Some((range.start, range.end, layer.depth));
                 layer.highlight_end_stack.push(range.end);
                 return self

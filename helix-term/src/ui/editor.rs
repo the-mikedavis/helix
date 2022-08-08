@@ -277,7 +277,7 @@ impl EditorView {
         doc: &'doc Document,
         offset: Position,
         height: u16,
-        _theme: &Theme,
+        theme: &Theme,
     ) -> Box<dyn Iterator<Item = HighlightEvent> + 'doc> {
         let text = doc.text().slice(..);
         let last_line = std::cmp::min(
@@ -306,7 +306,12 @@ impl EditorView {
                 let syntax_node_range = syntax_node_start..visible_end;
 
                 let iter = syntax
-                    .rainbow_iter(text.slice(..), Some(syntax_node_range), None)
+                    .rainbow_iter(
+                        text.slice(..),
+                        Some(syntax_node_range),
+                        None,
+                        theme.rainbow_length(),
+                    )
                     .map(|event| event.unwrap())
                     .filter_map(move |event| match event {
                         HighlightEvent::Source { start, end } => {
