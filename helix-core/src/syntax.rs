@@ -1047,9 +1047,8 @@ impl Syntax {
             layers,
             next_event: None,
             last_highlight_range: None,
-            match_highlights: HashMap::new(),
+            rainbow_stack: Vec::new(),
             rainbow_length,
-            rainbow_nesting_level: 0,
         };
         result.sort_layers();
         result
@@ -1290,7 +1289,8 @@ pub struct HighlightConfiguration {
     local_def_capture_index: Option<u32>,
     local_def_value_capture_index: Option<u32>,
     local_ref_capture_index: Option<u32>,
-    rainbow_capture_index: Option<u32>,
+    rainbow_scope_capture_index: Option<u32>,
+    rainbow_bracket_capture_index: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -1319,6 +1319,13 @@ struct HighlightIter<'a> {
 }
 
 #[derive(Debug)]
+struct RainbowScope {
+    pub range: ops::Range<usize>,
+    pub node_id: usize,
+    pub highlight: Highlight,
+}
+
+#[derive(Debug)]
 struct RainbowIter<'a> {
     source: RopeSlice<'a>,
     byte_offset: usize,
@@ -1326,11 +1333,9 @@ struct RainbowIter<'a> {
     layers: Vec<RainbowIterLayer<'a>>,
     iter_count: usize,
     next_event: Option<HighlightEvent>,
-    // TODO check needed
     last_highlight_range: Option<(usize, usize, usize)>,
-    match_highlights: HashMap<u32, Highlight>,
+    rainbow_stack: Vec<RainbowScope>,
     rainbow_length: usize,
-    rainbow_nesting_level: usize,
 }
 
 // Adapter to convert rope chunks to bytes
@@ -1468,7 +1473,8 @@ impl HighlightConfiguration {
         let mut local_def_value_capture_index = None;
         let mut local_ref_capture_index = None;
         let mut local_scope_capture_index = None;
-        let mut rainbow_capture_index = None;
+        let mut rainbow_scope_capture_index = None;
+        let mut rainbow_bracket_capture_index = None;
         for (i, name) in query.capture_names().iter().enumerate() {
             let i = Some(i as u32);
             match name.as_str() {
@@ -1480,11 +1486,13 @@ impl HighlightConfiguration {
             }
         }
         for (i, name) in rainbow_query.capture_names().iter().enumerate() {
-            if name.as_str() == "rainbow" {
-                rainbow_capture_index = Some(i as u32);
+            let i = Some(i as u32);
+            match name.as_str() {
+                "rainbow.scope" => rainbow_scope_capture_index = i,
+                "rainbow.bracket" => rainbow_bracket_capture_index = i,
+                _ => {}
             }
         }
-
         for (i, name) in injections_query.capture_names().iter().enumerate() {
             let i = Some(i as u32);
             match name.as_str() {
@@ -1510,7 +1518,8 @@ impl HighlightConfiguration {
             local_def_capture_index,
             local_def_value_capture_index,
             local_ref_capture_index,
-            rainbow_capture_index,
+            rainbow_scope_capture_index,
+            rainbow_bracket_capture_index,
         })
     }
 
@@ -2112,6 +2121,26 @@ impl<'a> Iterator for RainbowIter<'a> {
             let (match_, capture_index) = layer.captures.next().unwrap();
             let capture = match_.captures[capture_index];
 
+            // Remove from the rainbow scope stack any rainbow scopes that have already ended.
+            while let Some(scope) = self.rainbow_stack.last() {
+                if range.start >= scope.range.end {
+                    self.rainbow_stack.pop();
+                } else {
+                    break;
+                }
+            }
+
+            // If the node represents a local scope, push a new local scope onto
+            // the scope stack.
+            if Some(capture.index) == layer.config.rainbow_scope_capture_index {
+                let scope = RainbowScope {
+                    range: range.clone(),
+                    node_id: capture.node.id(),
+                    highlight: Highlight(self.rainbow_stack.len() % self.rainbow_length),
+                };
+                self.rainbow_stack.push(scope);
+            }
+
             // Otherwise, this capture must represent a highlight.
             // If this exact range has already been highlighted by an earlier pattern, or by
             // a different layer, then skip over this one.
@@ -2122,41 +2151,24 @@ impl<'a> Iterator for RainbowIter<'a> {
                 }
             }
 
-            // If the capture corresponds to the `@rainbow` scope, lookup the match
-            // in the `match_highlights` map. Otherwise, use the highlight from
-            // attempt to replace its default
-            let rainbow_highlight = if layer.config.rainbow_capture_index == Some(capture.index) {
-                if self.rainbow_length > 0 {
-                    if capture_index == 0 {
-                        // Initial capture in the match, add the entry and increment
-                        // nesting level, wrapping around to the first rainbow color.
-                        let next_highlight = Highlight(self.rainbow_nesting_level);
+            let mut rainbow_highlight = None;
 
-                        self.rainbow_nesting_level =
-                            (self.rainbow_nesting_level + 1) % self.rainbow_length;
-
-                        self.match_highlights.insert(match_.id(), next_highlight);
-
-                        Some(next_highlight)
-                    } else if capture_index == match_.captures.len() - 1 {
-                        // Final capture in the match, remove the entry and decrement
-                        // nesting level, wrapping around to the last rainbow color.
-                        self.rainbow_nesting_level = self
-                            .rainbow_nesting_level
-                            .checked_sub(1)
-                            .unwrap_or(self.rainbow_length - 1);
-
-                        self.match_highlights.remove(&match_.id())
-                    } else {
-                        // Any nodes between the first and last re-use the highlight.
-                        self.match_highlights.get(&match_.id()).copied()
+            if Some(capture.index) == layer.config.rainbow_bracket_capture_index {
+                if let Some(scope) = self.rainbow_stack.last() {
+                    // Check that the parent of the `@rainbow.bracket` capture is
+                    // the `@rainbow.scope` node. This allows us to have bracket
+                    // highlights for type parameters/arguments in Rust for example
+                    // without also highlighting operators like < and >.
+                    if capture
+                        .node
+                        .parent()
+                        .map(|p| p.id() == scope.node_id)
+                        .unwrap_or_default()
+                    {
+                        rainbow_highlight = Some(scope.highlight);
                     }
-                } else {
-                    None
                 }
-            } else {
-                None
-            };
+            }
 
             // Once a highlighting pattern is found for the current node, skip over
             // any later highlighting patterns that also match this node. Captures
