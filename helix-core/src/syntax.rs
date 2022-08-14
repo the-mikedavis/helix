@@ -1568,34 +1568,7 @@ impl HighlightConfiguration {
     }
 }
 
-impl<'a> HighlightIterLayer<'a> {
-    // First, sort scope boundaries by their byte offset in the document. At a
-    // given position, emit scope endings before scope beginnings. Finally, emit
-    // scope boundaries from deeper layers first.
-    fn sort_key(&mut self) -> Option<(usize, bool, isize)> {
-        let depth = -(self.depth as isize);
-        let next_start = self
-            .captures
-            .peek()
-            .map(|(m, i)| m.captures[*i].node.start_byte());
-        let next_end = self.highlight_end_stack.last().cloned();
-        match (next_start, next_end) {
-            (Some(start), Some(end)) => {
-                if start < end {
-                    Some((start, true, depth))
-                } else {
-                    Some((end, false, depth))
-                }
-            }
-            (Some(i), None) => Some((i, true, depth)),
-            (None, Some(j)) => Some((j, false, depth)),
-            _ => None,
-        }
-    }
-}
-
-// TODO duplicated
-impl<'a> RainbowIterLayer<'a> {
+impl<'a, C> QueryIterLayer<'a, C> {
     // First, sort scope boundaries by their byte offset in the document. At a
     // given position, emit scope endings before scope beginnings. Finally, emit
     // scope boundaries from deeper layers first.
@@ -1732,7 +1705,7 @@ fn intersect_ranges(
     result
 }
 
-impl<'a> HighlightIter<'a> {
+impl<'a, C, LC> QueryIter<'a, C, QueryIterLayer<'a, LC>> {
     fn emit_event(
         &mut self,
         offset: usize,
@@ -1998,61 +1971,6 @@ impl<'a> Iterator for HighlightIter<'a> {
             }
 
             self.sort_layers();
-        }
-    }
-}
-
-impl<'a> RainbowIter<'a> {
-    fn emit_event(
-        &mut self,
-        offset: usize,
-        event: Option<HighlightEvent>,
-    ) -> Option<Result<HighlightEvent, Error>> {
-        let result;
-        if self.byte_offset < offset {
-            result = Some(Ok(HighlightEvent::Source {
-                start: self.byte_offset,
-                end: offset,
-            }));
-            self.byte_offset = offset;
-            self.next_event = event;
-        } else {
-            result = event.map(Ok);
-        }
-        self.sort_layers();
-        result
-    }
-
-    fn sort_layers(&mut self) {
-        while !self.layers.is_empty() {
-            if let Some(sort_key) = self.layers[0].sort_key() {
-                let mut i = 0;
-                while i + 1 < self.layers.len() {
-                    if let Some(next_offset) = self.layers[i + 1].sort_key() {
-                        if next_offset < sort_key {
-                            i += 1;
-                            continue;
-                        }
-                    } else {
-                        let layer = self.layers.remove(i + 1);
-                        PARSER.with(|ts_parser| {
-                            let highlighter = &mut ts_parser.borrow_mut();
-                            highlighter.cursors.push(layer.cursor);
-                        });
-                    }
-                    break;
-                }
-                if i > 0 {
-                    self.layers[0..(i + 1)].rotate_left(1);
-                }
-                break;
-            } else {
-                let layer = self.layers.remove(0);
-                PARSER.with(|ts_parser| {
-                    let highlighter = &mut ts_parser.borrow_mut();
-                    highlighter.cursors.push(layer.cursor);
-                });
-            }
         }
     }
 }
