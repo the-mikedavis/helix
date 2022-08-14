@@ -1758,6 +1758,52 @@ impl<'a, C, LC> QueryIter<'a, C, QueryIterLayer<'a, LC>> {
             }
         }
     }
+
+    /// Scans forward to the next capture from whichever layer has the earliest highlight
+    /// boundary, returning highlight-end events or terminating the iterator if there
+    /// are no more captures or highlight-end events.
+    fn scan_to_earliest_capture(&mut self) -> Option<Option<Result<HighlightEvent, Error>>> {
+        let range;
+        let layer = &mut self.layers[0];
+        if let Some((next_match, capture_index)) = layer.captures.peek() {
+            let next_capture = next_match.captures[*capture_index];
+            range = next_capture.node.byte_range();
+
+            // If any previous highlight ends before this node starts, then before
+            // processing this capture, emit the source code up until the end of the
+            // previous highlight, and an end event for that highlight.
+            if let Some(end_byte) = layer.highlight_end_stack.last().cloned() {
+                if end_byte <= range.start {
+                    layer.highlight_end_stack.pop();
+                    return Some(self.emit_event(end_byte, Some(HighlightEvent::HighlightEnd)));
+                }
+            }
+        }
+        // If there are no more captures, then emit any remaining highlight end events.
+        else if let Some(end_byte) = layer.highlight_end_stack.pop() {
+            return Some(self.emit_event(end_byte, Some(HighlightEvent::HighlightEnd)));
+        }
+        // And if there are none of those, then just advance to the end of the document.
+        else {
+            return Some(self.emit_event(self.source.len_bytes(), None));
+        };
+        None
+    }
+
+    /// Check for cancellation, returning a `Cancelled` error if the cancellation
+    /// flag was flipped or the iteration count is too high.
+    fn check_cancellation(&mut self) -> Result<(), Error> {
+        if let Some(cancellation_flag) = self.cancellation_flag {
+            self.iter_count += 1;
+            if self.iter_count >= CANCELLATION_CHECK_INTERVAL {
+                self.iter_count = 0;
+                if cancellation_flag.load(Ordering::Relaxed) != 0 {
+                    return Err(Error::Cancelled);
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl<'a> Iterator for HighlightIter<'a> {
@@ -1770,16 +1816,9 @@ impl<'a> Iterator for HighlightIter<'a> {
                 return Some(Ok(e));
             }
 
-            // Periodically check for cancellation, returning `Cancelled` error if the
-            // cancellation flag was flipped.
-            if let Some(cancellation_flag) = self.cancellation_flag {
-                self.iter_count += 1;
-                if self.iter_count >= CANCELLATION_CHECK_INTERVAL {
-                    self.iter_count = 0;
-                    if cancellation_flag.load(Ordering::Relaxed) != 0 {
-                        return Some(Err(Error::Cancelled));
-                    }
-                }
+            // If the iterator has been cancelled, return an Error.
+            if let Err(err) = self.check_cancellation() {
+                return Some(Err(err));
             }
 
             // If none of the layers have any more highlight boundaries, terminate.
@@ -1797,36 +1836,17 @@ impl<'a> Iterator for HighlightIter<'a> {
                 };
             }
 
-            // Get the next capture from whichever layer has the earliest highlight boundary.
-            let range;
-            let layer = &mut self.layers[0];
-            if let Some((next_match, capture_index)) = layer.captures.peek() {
-                let next_capture = next_match.captures[*capture_index];
-                range = next_capture.node.byte_range();
-
-                // If any previous highlight ends before this node starts, then before
-                // processing this capture, emit the source code up until the end of the
-                // previous highlight, and an end event for that highlight.
-                if let Some(end_byte) = layer.highlight_end_stack.last().cloned() {
-                    if end_byte <= range.start {
-                        layer.highlight_end_stack.pop();
-                        return self.emit_event(end_byte, Some(HighlightEvent::HighlightEnd));
-                    }
-                }
-            }
-            // If there are no more captures, then emit any remaining highlight end events.
-            // And if there are none of those, then just advance to the end of the document.
-            else if let Some(end_byte) = layer.highlight_end_stack.last().cloned() {
-                layer.highlight_end_stack.pop();
-                return self.emit_event(end_byte, Some(HighlightEvent::HighlightEnd));
-            } else {
-                return self.emit_event(self.source.len_bytes(), None);
+            if let Some(event) = self.scan_to_earliest_capture() {
+                return event;
             };
 
+            let layer = &mut self.layers[0];
             let (mut match_, capture_index) = layer.captures.next().unwrap();
             let mut capture = match_.captures[capture_index];
+            let range = capture.node.byte_range();
 
             // Remove from the local scope stack any local scopes that have already ended.
+            // We can unwrap safely because a local scope exists for `0..usize::MAX`.
             while range.start > layer.context.last().unwrap().range.end {
                 layer.context.pop();
             }
@@ -1985,16 +2005,9 @@ impl<'a> Iterator for RainbowIter<'a> {
                 return Some(Ok(e));
             }
 
-            // Periodically check for cancellation, returning `Cancelled` error if the
-            // cancellation flag was flipped.
-            if let Some(cancellation_flag) = self.cancellation_flag {
-                self.iter_count += 1;
-                if self.iter_count >= CANCELLATION_CHECK_INTERVAL {
-                    self.iter_count = 0;
-                    if cancellation_flag.load(Ordering::Relaxed) != 0 {
-                        return Some(Err(Error::Cancelled));
-                    }
-                }
+            // If the iterator has been cancelled, return an Error.
+            if let Err(err) = self.check_cancellation() {
+                return Some(Err(err));
             }
 
             // If none of the layers have any more highlight boundaries, terminate.
@@ -2002,34 +2015,14 @@ impl<'a> Iterator for RainbowIter<'a> {
                 return None;
             }
 
-            // Get the next capture from whichever layer has the earliest highlight boundary.
-            let range;
-            let layer = &mut self.layers[0];
-            if let Some((next_match, capture_index)) = layer.captures.peek() {
-                let next_capture = next_match.captures[*capture_index];
-                range = next_capture.node.byte_range();
-
-                // If any previous highlight ends before this node starts, then before
-                // processing this capture, emit the source code up until the end of the
-                // previous highlight, and an end event for that highlight.
-                if let Some(end_byte) = layer.highlight_end_stack.last().cloned() {
-                    if end_byte <= range.start {
-                        layer.highlight_end_stack.pop();
-                        return self.emit_event(end_byte, Some(HighlightEvent::HighlightEnd));
-                    }
-                }
-            }
-            // If there are no more captures, then emit any remaining highlight end events.
-            // And if there are none of those, then just advance to the end of the document.
-            else if let Some(end_byte) = layer.highlight_end_stack.last().cloned() {
-                layer.highlight_end_stack.pop();
-                return self.emit_event(end_byte, Some(HighlightEvent::HighlightEnd));
-            } else {
-                return self.emit_event(self.source.len_bytes(), None);
+            if let Some(event) = self.scan_to_earliest_capture() {
+                return event;
             };
 
+            let layer = &mut self.layers[0];
             let (match_, capture_index) = layer.captures.next().unwrap();
             let capture = match_.captures[capture_index];
+            let range = capture.node.byte_range();
 
             // Remove from the rainbow scope stack any rainbow scopes that have already ended.
             while let Some(scope) = self.context.rainbow_stack.last() {
@@ -2040,7 +2033,7 @@ impl<'a> Iterator for RainbowIter<'a> {
                 }
             }
 
-            // If the node represents a local scope, push a new local scope onto
+            // If the node represents a rainbow scope, push a new rainbow scope onto
             // the scope stack.
             if Some(capture.index) == layer.config.rainbow_scope_capture_index {
                 let scope = RainbowScope {
