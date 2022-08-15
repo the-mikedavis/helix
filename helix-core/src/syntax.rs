@@ -2033,13 +2033,22 @@ impl<'a> Iterator for RainbowIter<'a> {
             // If the node represents a rainbow scope, push a new rainbow scope onto
             // the scope stack.
             if Some(capture.index) == layer.config.rainbow_scope_capture_index {
-                let scope = RainbowScope {
+                let mut scope = RainbowScope {
                     range: range.clone(),
                     node_id: capture.node.id(),
                     highlight: Highlight(
                         self.context.rainbow_stack.len() % self.context.rainbow_length,
                     ),
                 };
+                for prop in layer
+                    .config
+                    .rainbow_query
+                    .property_settings(match_.pattern_index)
+                {
+                    if prop.key.as_ref() == "rainbow.include-children" {
+                        scope.node_id = usize::MAX;
+                    }
+                }
                 self.context.rainbow_stack.push(scope);
             }
 
@@ -2057,15 +2066,10 @@ impl<'a> Iterator for RainbowIter<'a> {
 
             if Some(capture.index) == layer.config.rainbow_bracket_capture_index {
                 if let Some(scope) = self.context.rainbow_stack.last() {
-                    // Check that the parent of the `@rainbow.bracket` capture is
-                    // the `@rainbow.scope` node. This allows us to have bracket
-                    // highlights for type parameters/arguments in Rust for example
-                    // without also highlighting operators like < and >.
-                    if capture
-                        .node
-                        .parent()
-                        .map(|p| p.id() == scope.node_id)
-                        .unwrap_or_default()
+                    // If the scope includes all children or if this capture is a direct descendant of
+                    // the scope's captured node then this capture inherits the scope's highlight.
+                    if scope.node_id == usize::MAX
+                        || capture.node.parent().map(|p| p.id()) == Some(scope.node_id)
                     {
                         rainbow_highlight = Some(scope.highlight);
                     }
