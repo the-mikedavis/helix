@@ -52,13 +52,14 @@ pub fn compare_ropes(old: &Rope, new: &Rope) -> Transaction {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::{prop_assert_eq, proptest};
 
-    quickcheck::quickcheck! {
-        fn test_compare_ropes(a: String, b: String) -> bool {
+    proptest! {
+        fn test_compare_ropes(a: String, b: String) {
             let mut old = Rope::from(a);
             let new = Rope::from(b);
             compare_ropes(&old, &new).apply(&mut old);
-            old == new
+            prop_assert_eq!(old, new)
         }
     }
 }
