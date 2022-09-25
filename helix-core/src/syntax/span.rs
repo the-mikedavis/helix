@@ -139,49 +139,33 @@ impl Iterator for SpanIter {
 
         self.cursor = span.start;
 
-        // Handle all spans that share this starting point. Either subslice
-        // or fully consume the span.
-        let mut i = self.index;
-        let mut subslices = 0;
-        loop {
-            match self.spans.get_mut(i) {
-                Some(span) if span.start == self.cursor => {
-                    self.event_queue
-                        .push_back(HighlightStart(Highlight(span.scope)));
-                    i += 1;
-
-                    match subslice {
-                        Some(intersect) => {
-                            // If this span needs to be subsliced, consume the
-                            // left part of the subslice and leave the right.
-                            self.range_ends.push(intersect);
-                            span.start = intersect;
-                            subslices += 1;
-                        }
-                        None => {
-                            // If there is no subslice, consume the span.
-                            self.range_ends.push(span.end);
-                            self.index = i;
-                        }
-                    }
-                }
-                _ => break,
-            }
-        }
-
-        // Ensure range-ends are sorted ascending. Ranges which start at the
-        // same point may be in descending order because of the assumed
-        // sort-order of input ranges.
-        self.range_ends.sort_unstable();
-
-        // When spans are subsliced, the span Vec may need to be re-sorted
-        // because the `range.start` may now be greater than some `range.start`
-        // later in the Vec. This is not a classic "sort": we take several
-        // shortcuts to improve the runtime so that the sort may be done in
-        // time linear to the cardinality of the span Vec. Practically speaking
-        // the runtime is even better since we only scan from `self.index` to
-        // the first element of the Vec with a `range.start` after this range.
         if let Some(intersect) = subslice {
+            // Handle all spans that share this starting point. Either subslice
+            // or fully consume the span.
+            let mut i = self.index;
+            // If this span needs to be subsliced, consume the
+            // left part of the subslice and leave the right.
+            while let Some(span) = self.spans.get_mut(i) {
+                if span.start != self.cursor || span.end < intersect {
+                    break;
+                }
+
+                self.event_queue
+                    .push_back(HighlightStart(Highlight(span.scope)));
+                self.range_ends.push(intersect);
+                span.start = intersect;
+                i += 1;
+            }
+
+            let subslices = i - self.index;
+
+            // When spans are subsliced, the span Vec may need to be re-sorted
+            // because the `range.start` may now be greater than some `range.start`
+            // later in the Vec. This is not a classic "sort": we take several
+            // shortcuts to improve the runtime so that the sort may be done in
+            // time linear to the cardinality of the span Vec. Practically speaking
+            // the runtime is even better since we only scan from `self.index` to
+            // the first element of the Vec with a `range.start` after this range.
             let mut after = None;
 
             // Find the index of the largest span smaller than the intersect point.
@@ -205,6 +189,24 @@ impl Iterator for SpanIter {
                 self.spans[self.index..=after].rotate_left(subslices);
             }
         }
+
+        for span in &self.spans[self.index..] {
+            if span.start != self.cursor {
+                break;
+            }
+
+            self.event_queue
+                .push_back(HighlightStart(Highlight(span.scope)));
+            self.range_ends.push(span.end);
+
+            // If there is no subslice, consume the span.
+            self.index += 1;
+        }
+
+        // Ensure range-ends are sorted ascending. Ranges which start at the
+        // same point may be in descending order because of the assumed
+        // sort-order of input ranges.
+        self.range_ends.sort_unstable();
 
         self.event_queue.pop_front()
     }

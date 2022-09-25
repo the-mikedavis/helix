@@ -318,3 +318,100 @@ fn empty_span_at_sublice_start() {
         ],
     );
 }
+
+#[test]
+fn intercept_in_subslice() {
+    use HighlightEvent::*;
+    /*
+    Input:
+                     3
+                |-------|
+                    2
+            |----------------|
+               1
+        |-----------|
+
+        |---|---|---|---|---|
+        0   1   2   3   4   5     */
+    let input = vec![span!(1, 0..3), span!(2, 1..5), span!(3, 2..4)];
+
+    /*
+    Output:
+                   3
+                |---|
+                2     3
+            |-------|---|
+             1           2
+        |-----------|-------|
+
+        |---|---|---|---|---|
+        0   1   2   3   4   5     */
+    let output: Vec<_> = span_iter(input).collect();
+    assert_eq!(
+        output,
+        &[
+            HighlightStart(Highlight(1)),
+            Source { start: 0, end: 1 },
+            HighlightStart(Highlight(2)),
+            Source { start: 1, end: 2 },
+            HighlightStart(Highlight(3)),
+            Source { start: 2, end: 3 },
+            HighlightEnd, // ends 3
+            HighlightEnd, // ends 2
+            HighlightEnd, // ends 1
+            HighlightStart(Highlight(2)),
+            HighlightStart(Highlight(3)),
+            Source { start: 3, end: 4 },
+            HighlightEnd, // ends 3
+            Source { start: 4, end: 5 },
+            HighlightEnd, // ends 2
+        ],
+    );
+}
+
+#[test]
+fn subslice_in_intercept() {
+    use HighlightEvent::*;
+    /*
+    Input:
+               3
+            |---|
+                   2
+            |-----------|
+               1
+        |-----------|
+
+        |---|---|---|---|---|
+        0   1   2   3   4   5     */
+    let input = vec![span!(1, 0..3), span!(2, 1..4), span!(3, 1..2)];
+
+    /*
+    Output:
+              3
+            |---|
+                2
+            |-------|
+               1       2
+        |-----------|---|
+
+        |---|---|---|---|
+        0   1   2   3   4     */
+    let output: Vec<_> = span_iter(input).collect();
+    assert_eq!(
+        output,
+        &[
+            HighlightStart(Highlight(1)),
+            Source { start: 0, end: 1 },
+            HighlightStart(Highlight(2)),
+            HighlightStart(Highlight(3)),
+            Source { start: 1, end: 2 },
+            HighlightEnd, // ends 3
+            Source { start: 2, end: 3 },
+            HighlightEnd, // ends 2
+            HighlightEnd, // ends 1
+            HighlightStart(Highlight(2)),
+            Source { start: 3, end: 4 },
+            HighlightEnd, // ends 2
+        ],
+    );
+}
