@@ -186,13 +186,16 @@ impl Iterator for SpanIter {
 
             // Find the index of the largest span smaller than the intersect point.
             // `i` starts on the index after the last subsliced span.
-            loop {
-                match self.spans.get(i) {
-                    Some(span) if span.start < intersect => {
-                        after = Some(i);
-                        i += 1;
-                    }
-                    _ => break,
+            let intersect_pos = Span {
+                start: intersect,
+                ..span
+            };
+            while let Some(span) = self.spans.get(i) {
+                if span <= &intersect_pos {
+                    after = Some(i);
+                    i += 1;
+                } else {
+                    break;
                 }
             }
 
