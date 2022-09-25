@@ -71,6 +71,79 @@ pub fn span_iter(spans: Vec<Span>) -> impl Iterator<Item = HighlightEvent> {
     }
 }
 
+impl SpanIter {
+    fn start_span(&mut self, span: Span) {
+        use HighlightEvent::*;
+
+        debug_assert!(span.start <= span.end);
+        self.event_queue
+            .push_back(HighlightStart(Highlight(span.scope)));
+        self.range_ends.push(span.end);
+    }
+
+    fn process_range_end(&mut self, end: usize) -> HighlightEvent {
+        use HighlightEvent::*;
+
+        let start = replace(&mut self.cursor, end);
+        if start != end {
+            debug_assert!(start < end);
+            self.event_queue.push_back(HighlightEnd);
+            Source { start, end }
+        } else {
+            HighlightEnd
+        }
+    }
+
+    // Any subslices that end before intersect span needs to be subsliced, consume the
+    // left part of the subslice and leave the right.
+    fn partition_spans_at(&mut self, intersect: usize) {
+        let first_partioned_span = self.spans[self.index];
+
+        let mut i = self.index;
+        while let Some(span) = self.spans.get_mut(i) {
+            if span.start != self.cursor || span.end < intersect {
+                break;
+            }
+
+            let mut partinoed_span = *span;
+            partinoed_span.end = intersect;
+            span.start = intersect;
+
+            self.start_span(partinoed_span);
+            i += 1;
+        }
+
+        let subslices = i - self.index;
+
+        // When spans are subsliced, the span Vec may need to be re-sorted
+        // because the `range.start` may now be greater than some `range.start`
+        // later in the Vec. This is not a classic "sort": we take several
+        // shortcuts to improve the runtime so that the sort may be done in
+        // time linear to the cardinality of the span Vec. Practically speaking
+        // the runtime is even better since we only scan from `self.index` to
+        // the first element of the Vec with a `range.start` after this range.
+        let mut after = None;
+        let intersect_pos = Span {
+            start: intersect,
+            ..first_partioned_span
+        };
+        while let Some(span) = self.spans.get(i) {
+            if span <= &intersect_pos {
+                after = Some(i);
+                i += 1;
+            } else {
+                break;
+            }
+        }
+
+        // Rotate the subsliced spans so that they come after the spans that
+        // have smaller `range.start`s.
+        if let Some(after) = after {
+            self.spans[self.index..=after].rotate_left(subslices);
+        }
+    }
+}
+
 impl Iterator for SpanIter {
     type Item = HighlightEvent;
 
@@ -85,18 +158,7 @@ impl Iterator for SpanIter {
         if self.index == self.spans.len() {
             // There are no more spans. Emit Sources and HighlightEnds for
             // any ranges which have not been terminated yet.
-            let event = self.range_ends.pop().map(|end| {
-                let start = replace(&mut self.cursor, end);
-                if start != end {
-                    debug_assert!(start < end);
-                    self.event_queue.push_back(HighlightEnd);
-                    Source { start, end }
-                } else {
-                    HighlightEnd
-                }
-            });
-
-            return event;
+            return self.range_ends.pop().map(|end| self.process_range_end(end));
         }
 
         let span = self.spans[self.index];
@@ -110,15 +172,7 @@ impl Iterator for SpanIter {
                 // Complete the in-progress range by emitting a Source,
                 // if necessary, and a HighlightEnd and advance the cursor.
                 self.range_ends.pop();
-                let start = replace(&mut self.cursor, end);
-                let event = if start != end {
-                    debug_assert!(start < end);
-                    self.event_queue.push_back(HighlightEnd);
-                    Source { start, end }
-                } else {
-                    HighlightEnd
-                };
-                return Some(event);
+                return Some(self.process_range_end(end));
             } else {
                 // If the new range is longer than some in-progress range,
                 // we need to subslice this range and any ranges with the
@@ -145,67 +199,15 @@ impl Iterator for SpanIter {
         }
 
         if let Some(intersect) = subslice {
-            // Handle all spans that share this starting point. Either subslice
-            // or fully consume the span.
-            let mut i = self.index;
-
-            // If this span needs to be subsliced, consume the
-            // left part of the subslice and leave the right.
-            while let Some(span) = self.spans.get_mut(i) {
-                if span.start != self.cursor || span.end < intersect {
-                    break;
-                }
-
-                self.event_queue
-                    .push_back(HighlightStart(Highlight(span.scope)));
-                self.range_ends.push(intersect);
-                span.start = intersect;
-                i += 1;
-            }
-
-            let subslices = i - self.index;
-
-            // When spans are subsliced, the span Vec may need to be re-sorted
-            // because the `range.start` may now be greater than some `range.start`
-            // later in the Vec. This is not a classic "sort": we take several
-            // shortcuts to improve the runtime so that the sort may be done in
-            // time linear to the cardinality of the span Vec. Practically speaking
-            // the runtime is even better since we only scan from `self.index` to
-            // the first element of the Vec with a `range.start` after this range.
-            let mut after = None;
-
-            // Find the index of the largest span smaller than the intersect point.
-            // `i` starts on the index after the last subsliced span.
-            let intersect_pos = Span {
-                start: intersect,
-                ..span
-            };
-            while let Some(span) = self.spans.get(i) {
-                if span <= &intersect_pos {
-                    after = Some(i);
-                    i += 1;
-                } else {
-                    break;
-                }
-            }
-
-            // Rotate the subsliced spans so that they come after the spans that
-            // have smaller `range.start`s.
-            if let Some(after) = after {
-                self.spans[self.index..=after].rotate_left(subslices);
-            }
+            self.partition_spans_at(intersect)
         }
 
-        for span in &self.spans[self.index..] {
+        // start any new spans at the current position
+        while let Some(&span) = self.spans.get(self.index) {
             if span.start != self.cursor {
                 break;
             }
-
-            self.event_queue
-                .push_back(HighlightStart(Highlight(span.scope)));
-            self.range_ends.push(span.end);
-
-            // If there is no subslice, consume the span.
+            self.start_span(span);
             self.index += 1;
         }
 
