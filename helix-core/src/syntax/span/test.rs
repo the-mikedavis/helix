@@ -144,9 +144,9 @@ fn test_multiple_duplicate_overlapping_span_iter_events() {
     let input = vec![
         span!(1, 0..6),
         span!(2, 0..6),
-        span!(5, 4..8),
         span!(3, 4..10),
         span!(4, 4..10),
+        span!(5, 4..8),
     ];
 
     /*

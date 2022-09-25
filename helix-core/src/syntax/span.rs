@@ -20,9 +20,9 @@ pub struct Span {
 
 impl Ord for Span {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // Sort by range: ascending by start and then ascending by end for ties.
+        // Sort by range: ascending by start and then descending by end for ties.
         if self.start == other.start {
-            self.end.cmp(&other.end)
+            other.end.cmp(&self.end)
         } else {
             self.start.cmp(&other.start)
         }
