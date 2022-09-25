@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::mem::replace;
 
 use crate::syntax::Highlight;
 
@@ -84,65 +85,70 @@ impl Iterator for SpanIter {
         if self.index == self.spans.len() {
             // There are no more spans. Emit Sources and HighlightEnds for
             // any ranges which have not been terminated yet.
-            for end in self.range_ends.drain(..) {
-                if self.cursor != end {
-                    debug_assert!(self.cursor < end);
-                    self.event_queue.push_back(Source {
-                        start: self.cursor,
-                        end,
-                    });
+            let event = self.range_ends.pop().map(|end| {
+                let start = replace(&mut self.cursor, end);
+                if start != end {
+                    debug_assert!(start < end);
+                    self.event_queue.push_back(HighlightEnd);
+                    Source { start, end }
+                } else {
+                    HighlightEnd
                 }
-                self.event_queue.push_back(HighlightEnd);
-                self.cursor = end;
-            }
-            return self.event_queue.pop_front();
+            });
+
+            return event;
         }
 
         let span = self.spans[self.index];
-        let mut subslice = None;
 
-        self.range_ends.retain(|end| {
-            if span.start >= *end {
+        // Finish processing in-progress ranges that end before the new span starts.
+        // These can simply be popped off the end of `range_ends`
+        // because it is sorted in descending order
+        let subslice = if let Some(&end) = self.range_ends.last() {
+            if span.start >= end {
                 // The new range is past the end of this in-progress range.
                 // Complete the in-progress range by emitting a Source,
                 // if necessary, and a HighlightEnd and advance the cursor.
-                if self.cursor != *end {
-                    debug_assert!(self.cursor < *end);
-                    self.event_queue.push_back(Source {
-                        start: self.cursor,
-                        end: *end,
-                    });
-                }
-                self.event_queue.push_back(HighlightEnd);
-                self.cursor = *end;
-                false
-            } else if span.end > *end && subslice.is_none() {
+                self.range_ends.pop();
+                let start = replace(&mut self.cursor, end);
+                let event = if start != end {
+                    debug_assert!(start < end);
+                    self.event_queue.push_back(HighlightEnd);
+                    Source { start, end }
+                } else {
+                    HighlightEnd
+                };
+                return Some(event);
+            } else {
                 // If the new range is longer than some in-progress range,
                 // we need to subslice this range and any ranges with the
                 // same start. `subslice` is set to the smallest `end` for
                 // which `range.start < end < range.end`.
-                subslice = Some(*end);
-                true
-            } else {
-                true
+                if span.end > end {
+                    Some(end)
+                } else {
+                    None
+                }
             }
-        });
+        } else {
+            None
+        };
 
         // Emit a Source event between consecutive HighlightStart events
-        if span.start != self.cursor && !self.range_ends.is_empty() {
-            debug_assert!(self.cursor < span.start);
-            self.event_queue.push_back(Source {
-                start: self.cursor,
+        let start = replace(&mut self.cursor, span.start);
+        if span.start != start && !self.range_ends.is_empty() {
+            debug_assert!(start < span.start);
+            return Some(Source {
+                start,
                 end: span.start,
             });
         }
-
-        self.cursor = span.start;
 
         if let Some(intersect) = subslice {
             // Handle all spans that share this starting point. Either subslice
             // or fully consume the span.
             let mut i = self.index;
+
             // If this span needs to be subsliced, consume the
             // left part of the subslice and leave the right.
             while let Some(span) = self.spans.get_mut(i) {
@@ -203,10 +209,11 @@ impl Iterator for SpanIter {
             self.index += 1;
         }
 
-        // Ensure range-ends are sorted ascending. Ranges which start at the
-        // same point may be in descending order because of the assumed
-        // sort-order of input ranges.
-        self.range_ends.sort_unstable();
+        // Ensure range ends are sorted in descending orders.
+        // Ranges are sorted by their start instead of their end so the input sorting can't be reused.
+        // The range ends must be sorted in descending order.
+        // So that the ranges that end before the next range can be easily removed.
+        self.range_ends.sort_unstable_by(|lhs, rhs| rhs.cmp(lhs));
 
         self.event_queue.pop_front()
     }
