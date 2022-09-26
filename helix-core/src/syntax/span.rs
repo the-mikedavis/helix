@@ -123,7 +123,7 @@ impl SpanIter {
             i += 1;
         }
 
-        let subslices = i - self.index;
+        let num_partitioned_spans = i - self.index;
 
         // When spans are partioned, the span Vec may need to be re-sorted
         // because the `span.start` may now be greater than some `span.start`
@@ -132,24 +132,21 @@ impl SpanIter {
         // time linear to the cardinality of the span Vec. Practically speaking
         // the runtime is even better since we only scan from `self.index` to
         // the first element of the Vec with a `span.start` after this span.
-        let mut after = None;
         let intersect_span = Span {
             start: intersect,
             ..first_partitioned_span
         };
-        while let Some(span) = self.spans.get(i) {
-            if span <= &intersect_span {
-                after = Some(i);
-                i += 1;
-            } else {
-                break;
-            }
-        }
+
+        let num_spans_to_resort = self.spans[i..]
+            .iter()
+            .take_while(|&&span| span <= intersect_span)
+            .count();
 
         // Rotate the subsliced spans so that they come after the spans that
         // have smaller `span.start`s.
-        if let Some(after) = after {
-            self.spans[self.index..=after].rotate_left(subslices);
+        if num_spans_to_resort != 0 {
+            let first_sorted_span = i + num_spans_to_resort;
+            self.spans[self.index..first_sorted_span].rotate_left(num_partitioned_spans);
         }
     }
 }
