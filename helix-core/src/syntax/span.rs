@@ -160,13 +160,19 @@ impl Iterator for SpanIter {
             return Some(event);
         }
 
-        if self.index == self.spans.len() {
-            // There are no more spans. Emit Sources and HighlightEnds for
-            // any spans which have not been terminated yet.
-            return self.span_ends.pop().map(|end| self.emit_span_end(end));
-        }
-
-        let span = self.spans[self.index];
+        let span = loop {
+            if self.index == self.spans.len() {
+                // There are no more spans. Emit Sources and HighlightEnds for
+                // any spans which have not been terminated yet.
+                return self.span_ends.pop().map(|end| self.emit_span_end(end));
+            } else {
+                let span = self.spans[self.index];
+                if span.start != span.end {
+                    break span;
+                }
+                self.index += 1;
+            }
+        };
 
         // Finish processing in-progress spans that end before the new span starts.
         // These can simply be popped off the end of `span_ends`
