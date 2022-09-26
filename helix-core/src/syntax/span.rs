@@ -4,6 +4,7 @@ use std::mem::replace;
 use crate::syntax::Highlight;
 
 use super::HighlightEvent;
+use HighlightEvent::*;
 
 #[cfg(test)]
 mod test;
@@ -23,7 +24,7 @@ impl Ord for Span {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         // Sort by range: ascending by start and then descending by end for ties.
         if self.start == other.start {
-            other.end.cmp(&self.end)
+            self.end.cmp(&other.end).reverse()
         } else {
             self.start.cmp(&other.start)
         }
@@ -73,8 +74,6 @@ pub fn span_iter(spans: Vec<Span>) -> impl Iterator<Item = HighlightEvent> {
 
 impl SpanIter {
     fn start_span(&mut self, span: Span) {
-        use HighlightEvent::*;
-
         debug_assert!(span.start <= span.end);
         self.event_queue
             .push_back(HighlightStart(Highlight(span.scope)));
@@ -82,8 +81,6 @@ impl SpanIter {
     }
 
     fn process_range_end(&mut self, end: usize) -> HighlightEvent {
-        use HighlightEvent::*;
-
         let start = replace(&mut self.cursor, end);
         if start != end {
             debug_assert!(start < end);
@@ -97,7 +94,7 @@ impl SpanIter {
     // Any subslices that end before intersect span needs to be subsliced, consume the
     // left part of the subslice and leave the right.
     fn partition_spans_at(&mut self, intersect: usize) {
-        let first_partioned_span = self.spans[self.index];
+        let first_partitioned_span = self.spans[self.index];
 
         let mut i = self.index;
         while let Some(span) = self.spans.get_mut(i) {
@@ -105,11 +102,11 @@ impl SpanIter {
                 break;
             }
 
-            let mut partinoed_span = *span;
-            partinoed_span.end = intersect;
+            let mut partitioned_span = *span;
+            partitioned_span.end = intersect;
             span.start = intersect;
 
-            self.start_span(partinoed_span);
+            self.start_span(partitioned_span);
             i += 1;
         }
 
@@ -123,12 +120,12 @@ impl SpanIter {
         // the runtime is even better since we only scan from `self.index` to
         // the first element of the Vec with a `range.start` after this range.
         let mut after = None;
-        let intersect_pos = Span {
+        let intersect_span = Span {
             start: intersect,
-            ..first_partioned_span
+            ..first_partitioned_span
         };
         while let Some(span) = self.spans.get(i) {
-            if span <= &intersect_pos {
+            if span <= &intersect_span {
                 after = Some(i);
                 i += 1;
             } else {
@@ -148,8 +145,6 @@ impl Iterator for SpanIter {
     type Item = HighlightEvent;
 
     fn next(&mut self) -> Option<Self::Item> {
-        use HighlightEvent::*;
-
         // Emit any queued highlight events
         if let Some(event) = self.event_queue.pop_front() {
             return Some(event);
@@ -215,7 +210,8 @@ impl Iterator for SpanIter {
         // Ranges are sorted by their start instead of their end so the input sorting can't be reused.
         // The range ends must be sorted in descending order.
         // So that the ranges that end before the next range can be easily removed.
-        self.range_ends.sort_unstable_by(|lhs, rhs| rhs.cmp(lhs));
+        self.range_ends
+            .sort_unstable_by(|lhs, rhs| lhs.cmp(rhs).reverse());
 
         self.event_queue.pop_front()
     }
