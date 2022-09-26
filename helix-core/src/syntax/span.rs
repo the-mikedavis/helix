@@ -22,7 +22,7 @@ pub struct Span {
 
 impl Ord for Span {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // Sort by range: ascending by start and then descending by end for ties.
+        // Sort by span: ascending by start and then descending by end for ties.
         if self.start == other.start {
             self.end.cmp(&other.end).reverse()
         } else {
@@ -41,7 +41,7 @@ struct SpanIter {
     spans: Vec<Span>,
     index: usize,
     event_queue: VecDeque<HighlightEvent>,
-    range_ends: Vec<usize>,
+    span_ends: Vec<usize>,
     cursor: usize,
 }
 
@@ -52,22 +52,22 @@ struct SpanIter {
 /// overlap. The iterator produced by this function satisfies all invariants
 /// and assumptions for [super::merge]
 ///
-/// `spans` is assumed to be sorted by `range.start` ascending and then by
-/// `range.end` descending for any ties.
+/// `spans` is assumed to be sorted by `span.start` ascending and then by
+/// `span.end` descending for any ties.
 ///
 /// # Panics
 ///
 /// Panics on debug builds when the input spans overlap or are not sorted.
 pub fn span_iter(spans: Vec<Span>) -> impl Iterator<Item = HighlightEvent> {
-    // Assert that `spans` is sorted by `range.start` ascending and
-    // `range.end` descending.
+    // Assert that `spans` is sorted by `span.start` ascending and
+    // `span.end` descending.
     debug_assert!(spans.windows(2).all(|window| window[0] <= window[1]));
 
     SpanIter {
         spans,
         index: 0,
         event_queue: VecDeque::new(),
-        range_ends: Vec::new(),
+        span_ends: Vec::new(),
         cursor: 0,
     }
 }
@@ -77,10 +77,10 @@ impl SpanIter {
         debug_assert!(span.start <= span.end);
         self.event_queue
             .push_back(HighlightStart(Highlight(span.scope)));
-        self.range_ends.push(span.end);
+        self.span_ends.push(span.end);
     }
 
-    fn process_range_end(&mut self, end: usize) -> HighlightEvent {
+    fn emit_span_end(&mut self, end: usize) -> HighlightEvent {
         let start = replace(&mut self.cursor, end);
         if start != end {
             debug_assert!(start < end);
@@ -91,8 +91,21 @@ impl SpanIter {
         }
     }
 
-    // Any subslices that end before intersect span needs to be subsliced, consume the
-    // left part of the subslice and leave the right.
+    /// This function is called if any in-progress span (henceforth called span A)
+    /// ends before the end of the span we are looking at (henceforth called span B).
+    /// It partitions span B at the end of span `A` so that `A` can be removed from the highlight stack
+    /// before the remainder of `B`  is added to the stack.
+    ///
+    /// There might be multiple spans starting at the same point as `B`.
+    /// All spans that also end past `A` are processed the same in this function.
+    /// Spans that end before `A` are not handled here and should be processed as usual.
+    ///
+    /// This function calls `start_span` for the subs pans that end at the same point as span `A`.
+    /// The remaining subspaces are stored in `self.spans` at the correct position.
+    ///
+    /// # Arguments
+    ///
+    /// * intersect: the end of span `A`   
     fn partition_spans_at(&mut self, intersect: usize) {
         let first_partitioned_span = self.spans[self.index];
 
@@ -112,13 +125,13 @@ impl SpanIter {
 
         let subslices = i - self.index;
 
-        // When spans are subsliced, the span Vec may need to be re-sorted
-        // because the `range.start` may now be greater than some `range.start`
+        // When spans are partioned, the span Vec may need to be re-sorted
+        // because the `span.start` may now be greater than some `span.start`
         // later in the Vec. This is not a classic "sort": we take several
         // shortcuts to improve the runtime so that the sort may be done in
         // time linear to the cardinality of the span Vec. Practically speaking
         // the runtime is even better since we only scan from `self.index` to
-        // the first element of the Vec with a `range.start` after this range.
+        // the first element of the Vec with a `span.start` after this span.
         let mut after = None;
         let intersect_span = Span {
             start: intersect,
@@ -134,7 +147,7 @@ impl SpanIter {
         }
 
         // Rotate the subsliced spans so that they come after the spans that
-        // have smaller `range.start`s.
+        // have smaller `span.start`s.
         if let Some(after) = after {
             self.spans[self.index..=after].rotate_left(subslices);
         }
@@ -152,27 +165,27 @@ impl Iterator for SpanIter {
 
         if self.index == self.spans.len() {
             // There are no more spans. Emit Sources and HighlightEnds for
-            // any ranges which have not been terminated yet.
-            return self.range_ends.pop().map(|end| self.process_range_end(end));
+            // any spans which have not been terminated yet.
+            return self.span_ends.pop().map(|end| self.emit_span_end(end));
         }
 
         let span = self.spans[self.index];
 
-        // Finish processing in-progress ranges that end before the new span starts.
-        // These can simply be popped off the end of `range_ends`
+        // Finish processing in-progress spans that end before the new span starts.
+        // These can simply be popped off the end of `span_ends`
         // because it is sorted in descending order
-        let subslice = if let Some(&end) = self.range_ends.last() {
+        let subslice = if let Some(&end) = self.span_ends.last() {
             if span.start >= end {
-                // The new range is past the end of this in-progress range.
-                // Complete the in-progress range by emitting a Source,
+                // The new span is past the end of this in-progress span.
+                // Complete the in-progress span by emitting a Source,
                 // if necessary, and a HighlightEnd and advance the cursor.
-                self.range_ends.pop();
-                return Some(self.process_range_end(end));
+                self.span_ends.pop();
+                return Some(self.emit_span_end(end));
             } else {
-                // If the new range is longer than some in-progress range,
-                // we need to subslice this range and any ranges with the
+                // If the new span is longer than some in-progress span,
+                // we need to subslice this span and any spans with the
                 // same start. `subslice` is set to the smallest `end` for
-                // which `range.start < end < range.end`.
+                // which `span.start < end < span.end`.
                 if span.end > end {
                     Some(end)
                 } else {
@@ -185,7 +198,7 @@ impl Iterator for SpanIter {
 
         // Emit a Source event between consecutive HighlightStart events
         let start = replace(&mut self.cursor, span.start);
-        if span.start != start && !self.range_ends.is_empty() {
+        if span.start != start && !self.span_ends.is_empty() {
             debug_assert!(start < span.start);
             return Some(Source {
                 start,
@@ -206,11 +219,11 @@ impl Iterator for SpanIter {
             self.index += 1;
         }
 
-        // Ensure range ends are sorted in descending orders.
-        // Ranges are sorted by their start instead of their end so the input sorting can't be reused.
-        // The range ends must be sorted in descending order.
-        // So that the ranges that end before the next range can be easily removed.
-        self.range_ends
+        // Ensure span ends are sorted in descending orders.
+        // Spans are sorted by their start instead of their end so the input sorting can't be reused.
+        // The span ends must be sorted in descending order.
+        // So that the spans that end before the next span can be easily removed.
+        self.span_ends
             .sort_unstable_by(|lhs, rhs| lhs.cmp(rhs).reverse());
 
         self.event_queue.pop_front()
@@ -224,7 +237,7 @@ struct FlatSpanIter<I> {
 /// Converts a Vec of spans into an [Iterator] over [HighlightEvent]s
 ///
 /// This implementation does not resolve overlapping spans. Zero-width spans are
-/// eliminated but otherwise the ranges are trusted to not overlap.
+/// eliminated but otherwise the spans are trusted to not overlap.
 ///
 /// This iterator has much less overhead than [span_iter] and is appropriate for
 /// cases where the input spans are known to satisfy all of [super::merge]'s
