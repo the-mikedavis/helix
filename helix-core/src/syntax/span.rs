@@ -218,7 +218,9 @@ impl Iterator for SpanIter {
             if span.start != self.cursor {
                 break;
             }
-            self.start_span(span);
+            if span.start != span.end {
+                self.start_span(span);
+            }
             self.index += 1;
         }
 

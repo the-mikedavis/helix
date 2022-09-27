@@ -350,3 +350,75 @@ fn subslice_in_intercept() {
         ],
     );
 }
+
+#[test]
+fn prune_trivial_empty_span() {
+    let input = vec![span!(1, 0..0), span!(2, 1..2), span!(3, 2..2)];
+    let output: Vec<_> = span_iter(input).collect();
+    assert_eq!(
+        output,
+        &[
+            HighlightStart(Highlight(2)),
+            Source { start: 1, end: 2 },
+            HighlightEnd,
+        ],
+    );
+}
+
+/// This test ensure that empty spans that emerge
+/// during span partioning are removed.
+/// If they are not removed they can
+
+#[test]
+fn prune_emerging_empty_span() {
+    use HighlightEvent::*;
+    /*
+    Input:
+
+              3    4
+            |---|---|
+                 2
+            |-----------|
+            1
+        |-------|
+        |---|---|---|---|
+        0   1   2   3   4     */
+    let input = vec![
+        span!(1, 0..2),
+        span!(2, 1..4),
+        span!(3, 1..2),
+        span!(4, 2..3),
+    ];
+
+    /*
+    Output:
+              3
+            |---|
+              2   4
+            |---|---|
+            1       2
+        |-------|-------|
+
+        |---|---|---|---|
+        0   1   2   3   4     */
+    let output: Vec<_> = span_iter(input).collect();
+    assert_eq!(
+        output,
+        &[
+            HighlightStart(Highlight(1)),
+            Source { start: 0, end: 1 },
+            HighlightStart(Highlight(2)),
+            HighlightStart(Highlight(3)),
+            Source { start: 1, end: 2 },
+            HighlightEnd, // ends 3
+            HighlightEnd, // ends 2
+            HighlightEnd, // ends 1
+            HighlightStart(Highlight(2)),
+            HighlightStart(Highlight(4)),
+            Source { start: 2, end: 3 },
+            HighlightEnd, // ends 4
+            Source { start: 3, end: 4 },
+            HighlightEnd, // ends 2
+        ],
+    );
+}
