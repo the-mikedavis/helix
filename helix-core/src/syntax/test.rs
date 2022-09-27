@@ -1,4 +1,5 @@
 use super::*;
+use crate::syntax::highlight_set::HighlightSet;
 use crate::syntax::span::{span_iter, Span};
 use crate::{Rope, Transaction};
 use proptest::strategy::{Just, Strategy};
@@ -641,15 +642,16 @@ fn span(file_size: usize, allow_empty: bool, scope: usize) -> impl Strategy<Valu
         })
 }
 
-const MAX_SPAN_LIST_SIZE: usize = 100;
-const MAX_FILE_SIZE: usize = 100;
+const MAX_SPAN_LIST_SIZE: usize = 20;
+const MAX_FILE_SIZE: usize = 40;
+
 fn span_list() -> impl Strategy<Value = Vec<Span>> + Clone {
     let file_size = 1..MAX_FILE_SIZE;
     let span_list_size = 0..MAX_SPAN_LIST_SIZE;
     (file_size, span_list_size)
         .prop_flat_map(|(file_size, span_list_size)| {
             let ranges: Vec<_> = (0..span_list_size)
-                .map(|i| span(file_size, true, i))
+                .map(|i| span(file_size, false, i))
                 .collect();
             ranges
         })
@@ -707,56 +709,27 @@ fn check_highlight_event_invariants(
     Ok(())
 }
 
-fn check_highlight_events_at_span_bounds(
-    spans: impl Iterator<Item = Span>,
-    events: impl Iterator<Item = HighlightEvent>,
-) -> TestCaseResult {
-    let mut expected_start_events = HashSet::new();
-    let mut expected_end_events = HashMap::new();
-    for span in spans {
-        // there is now way to track the exact position of an empty span
-        if span.start == span.end {
-            continue;
-        }
-        expected_start_events.insert((span.start, span.scope));
-        expected_end_events
-            .entry(span.end)
-            .and_modify(|i| *i += 1)
-            .or_insert(1usize);
-    }
+/// prop_assert_ne but uses similar_assert for a more readable diff
+macro_rules! prop_assert_eq {
+    ($lhs: expr, $rhs: expr, $message: expr ) => {
+        let lhs = $lhs;
+        let rhs = $rhs;
 
-    let mut cursor = 0;
-    let mut accumlated_start_events = Vec::new();
-    for event in events {
-        match event {
-            HighlightEvent::Source { start, end } => {
-                cursor = end;
-                for scope in accumlated_start_events.drain(..) {
-                    expected_start_events.remove(&(start, scope));
-                }
-            }
-            HighlightEvent::HighlightStart(start) => {
-                accumlated_start_events.push(start.0);
-            }
-            HighlightEvent::HighlightEnd => {
-                if let Some(&remaining) = expected_end_events.get(&cursor) {
-                    if remaining == 1 {
-                        expected_end_events.remove(&cursor);
-                    } else {
-                        expected_end_events.insert(cursor, remaining - 1);
-                    }
-                }
-            }
-        }
-    }
-
-    prop_assert!(
-        expected_start_events.is_empty() && expected_end_events.is_empty(),
-        "some required events at range bounds are missing:
-         missing HighlightStart events {expected_start_events:?}
-         missing number of HighlightEnd events {expected_end_events:?}"
-    );
-    Ok(())
+        let lhs_label = stringify!($lhs);
+        let rhs_label = stringify!($rhs);
+        ::proptest::prop_assert!(
+            lhs == rhs,
+            "assertion failed: `({lhs_label} == {rhs_label})`{}\
+                           \n\n{}\n",
+            $message,
+            similar_asserts::SimpleDiff::from_str(
+                &format!("{lhs:#?}"),
+                &&format!("{rhs:#?}"),
+                lhs_label,
+                rhs_label,
+            )
+        );
+    };
 }
 
 proptest! {
@@ -768,8 +741,10 @@ proptest! {
 
 
     #[test]
-    fn test_span_iter_event_bounds(spans in span_list()) {
-        let events = span_iter(spans.clone());
-        check_highlight_events_at_span_bounds(spans.into_iter(), events)?;
+    fn test_span_iter_highlights(spans in span_list()) {
+        let reference_highlights: HighlightSet = spans.iter().copied().collect();
+        let events: Vec<_> = span_iter(spans).collect();
+        let computed_highlights: HighlightSet = events.iter().copied().collect();
+        prop_assert_eq!(reference_highlights, computed_highlights, format_args!("\n{events:#?}\n"));
     }
 }

@@ -1,5 +1,3 @@
-pub mod span;
-
 use crate::{
     auto_pairs::AutoPairs,
     chars::char_is_line_ending,
@@ -26,6 +24,13 @@ use once_cell::sync::{Lazy, OnceCell};
 use serde::{Deserialize, Serialize};
 
 use helix_loader::grammar::{get_language, load_runtime_file};
+
+pub mod span;
+
+#[cfg(test)]
+mod highlight_set;
+#[cfg(test)]
+mod test;
 
 fn deserialize_regex<'de, D>(deserializer: D) -> Result<Option<Regex>, D::Error>
 where
@@ -1131,8 +1136,14 @@ use tree_sitter::{
 const CANCELLATION_CHECK_INTERVAL: usize = 100;
 
 /// Indicates which highlight should be applied to a region of source code.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct Highlight(pub usize);
+
+impl fmt::Debug for Highlight {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "hl{}", self.0)
+    }
+}
 
 /// Represents the reason why syntax highlighting failed.
 #[derive(Debug, PartialEq, Eq)]
@@ -2207,6 +2218,3 @@ impl<I: Iterator<Item = HighlightEvent>, R: Iterator<Item = HighlightEvent>> Ite
         }
     }
 }
-
-#[cfg(test)]
-mod test;
