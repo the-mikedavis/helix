@@ -111,8 +111,8 @@ fn test_many_overlapping_span_iter_events() {
             Source { start: 12, end: 13 },
             HighlightEnd, // ends 4
             HighlightEnd, // ends 3
-            HighlightStart(Highlight(5)),
             HighlightStart(Highlight(4)),
+            HighlightStart(Highlight(5)),
             Source { start: 13, end: 15 },
             HighlightEnd, // ends 5
             HighlightEnd, // ends 4

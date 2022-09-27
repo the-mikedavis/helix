@@ -105,25 +105,23 @@ impl SpanIter {
     ///
     /// # Arguments
     ///
-    /// * intersect: the end of span `A`   
-    fn partition_spans_at(&mut self, intersect: usize) {
-        let first_partitioned_span = self.spans[self.index];
-
+    /// * `partition_point`: the end of span `A`   
+    fn partition_spans_at(&mut self, partition_point: usize) {
         let mut i = self.index;
         while let Some(span) = self.spans.get_mut(i) {
-            if span.start != self.cursor || span.end < intersect {
+            if span.start != self.cursor || span.end <= partition_point {
                 break;
             }
 
             let mut partitioned_span = *span;
-            partitioned_span.end = intersect;
-            span.start = intersect;
+            partitioned_span.end = partition_point;
+            span.start = partition_point;
 
             self.start_span(partitioned_span);
             i += 1;
         }
 
-        let num_partitioned_spans = i - self.index;
+        let num_partioned_spans = i - self.index;
 
         // When spans are partioned, the span Vec may need to be re-sorted
         // because the `span.start` may now be greater than some `span.start`
@@ -132,21 +130,45 @@ impl SpanIter {
         // time linear to the cardinality of the span Vec. Practically speaking
         // the runtime is even better since we only scan from `self.index` to
         // the first element of the Vec with a `span.start` after this span.
-        let intersect_span = Span {
-            start: intersect,
-            ..first_partitioned_span
-        };
-
-        let num_spans_to_resort = self.spans[i..]
+        let num_spans_to_rotate = self.spans[i..]
             .iter()
-            .take_while(|&&span| span <= intersect_span)
+            .take_while(|&&span| span.start < partition_point)
+            .count();
+        i += num_spans_to_rotate;
+
+        // Rotate the partioned spans so that they come after the spans that
+        // have smaller `span.start`s.
+        if num_spans_to_rotate != 0 {
+            self.spans[self.index..i].rotate_left(num_partioned_spans);
+        }
+
+        // Spans that start at the same position in the `spans` Vec must be sorted
+        // by their endpoint. if there are already were some spans that start at
+        // the `partition_point` in the `spans` Vec, these spans now need to be resorted.
+        // The trick of rotating the span left doesn't work here, because spans are
+        // only sorted by their ends if they have the same start.
+        // Because we moved the start of the partinoined spans the partinoed spans and
+        // the spans that start at the partion point must be freshly sorted by their ends.
+        // Fortunitly this is a very rare case and the slice in question is usually just
+        // couple elements long so the performance impact is not that bad
+        let num_spans_to_sort = self.spans[i..]
+            .iter()
+            .take_while(|&&span| span.start == partition_point)
             .count();
 
         // Rotate the subsliced spans so that they come after the spans that
         // have smaller `span.start`s.
-        if num_spans_to_resort != 0 {
-            let first_sorted_span = i + num_spans_to_resort;
-            self.spans[self.index..first_sorted_span].rotate_left(num_partitioned_spans);
+        if num_spans_to_sort != 0 {
+            // we have rotate spans with smaller start before the partioned spans already
+            let sort_slice_start = self.index + num_spans_to_rotate;
+            let sort_slice_end = i + num_spans_to_sort;
+            debug_assert_eq!(
+                sort_slice_end,
+                sort_slice_start + num_partioned_spans + num_spans_to_sort
+            );
+
+            self.spans[sort_slice_start..sort_slice_end]
+                .sort_unstable_by(|span_a, span_b| span_a.end.cmp(&span_b.end).reverse());
         }
     }
 }

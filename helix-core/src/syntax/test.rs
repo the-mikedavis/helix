@@ -642,8 +642,11 @@ fn span(file_size: usize, allow_empty: bool, scope: usize) -> impl Strategy<Valu
         })
 }
 
-const MAX_SPAN_LIST_SIZE: usize = 20;
-const MAX_FILE_SIZE: usize = 40;
+/// The maximum number of created spans.
+/// Must not surpass 128 because `HighlightSet` can not represent more elements
+/// When trying to reduce a regression it is often useful to reduce this significantly
+const MAX_SPAN_LIST_SIZE: usize = 128;
+const MAX_FILE_SIZE: usize = 200;
 
 fn span_list() -> impl Strategy<Value = Vec<Span>> + Clone {
     let file_size = 1..MAX_FILE_SIZE;
