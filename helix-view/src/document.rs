@@ -115,10 +115,19 @@ pub struct SavePoint {
     revert: Mutex<Transaction>,
 }
 
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub enum MarkerName {
+    Register(char),
+    // Snippet(?),
+}
+
 pub struct Document {
     pub(crate) id: DocumentId,
     text: Rope,
     selections: HashMap<ViewId, Selection>,
+
+    /// Named selections within the document.
+    pub markers: HashMap<MarkerName, Selection>,
 
     /// Inlay hints annotations for the document, by view.
     ///
@@ -476,6 +485,7 @@ impl Document {
             encoding,
             text,
             selections: HashMap::default(),
+            markers: HashMap::default(),
             inlay_hints: HashMap::default(),
             inlay_hints_oudated: false,
             indent_style: DEFAULT_INDENT,
@@ -924,6 +934,15 @@ impl Document {
 
         if success {
             for selection in self.selections.values_mut() {
+                *selection = selection
+                    .clone()
+                    // Map through changes
+                    .map(transaction.changes())
+                    // Ensure all selections across all views still adhere to invariants.
+                    .ensure_invariants(self.text.slice(..));
+            }
+
+            for selection in self.markers.values_mut() {
                 *selection = selection
                     .clone()
                     // Map through changes
