@@ -124,4 +124,4 @@
 | wgsl | ✓ |  |  |  | `wgsl_analyzer` |
 | xit | ✓ |  |  |  |  |
 | yaml | ✓ |  | ✓ | ✓ | `yaml-language-server` |
-| zig | ✓ |  | ✓ |  | `zls` |
+| zig | ✓ |  | ✓ | ✓ | `zls` |
