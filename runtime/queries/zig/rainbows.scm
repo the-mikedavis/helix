@@ -22,7 +22,6 @@
   ; using {}
   (Block)
   (BlockExpr)
-  (EscapeSequence)
   (FormatSequence)
   (InitList)
   
