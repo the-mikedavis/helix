@@ -29,6 +29,11 @@
   ; using []
   (SliceTypeStart)
   (SuffixOp)
+  
+  ; zig uses || for captures
+  (Payload         "|" @rainbow.bracket)
+  (PtrPayload      "|" @rainbow.bracket)
+  (PtrIndexPayload "|" @rainbow.bracket)
 ] @rainbow.scope
 
 [
