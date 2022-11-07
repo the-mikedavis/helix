@@ -856,7 +856,7 @@ fn paste_clipboard_after(
         return Ok(());
     }
 
-    paste_clipboard_impl(cx.editor, Paste::After, ClipboardType::Clipboard, 1)
+    paste_clipboard_impl(cx.editor, Paste::After, ClipboardType::Clipboard, 1).map(|_| ())
 }
 
 fn paste_clipboard_before(
@@ -868,7 +868,7 @@ fn paste_clipboard_before(
         return Ok(());
     }
 
-    paste_clipboard_impl(cx.editor, Paste::Before, ClipboardType::Clipboard, 1)
+    paste_clipboard_impl(cx.editor, Paste::Before, ClipboardType::Clipboard, 1).map(|_| ())
 }
 
 fn paste_primary_clipboard_after(
@@ -880,7 +880,7 @@ fn paste_primary_clipboard_after(
         return Ok(());
     }
 
-    paste_clipboard_impl(cx.editor, Paste::After, ClipboardType::Selection, 1)
+    paste_clipboard_impl(cx.editor, Paste::After, ClipboardType::Selection, 1).map(|_| ())
 }
 
 fn paste_primary_clipboard_before(
@@ -892,7 +892,7 @@ fn paste_primary_clipboard_before(
         return Ok(());
     }
 
-    paste_clipboard_impl(cx.editor, Paste::Before, ClipboardType::Selection, 1)
+    paste_clipboard_impl(cx.editor, Paste::Before, ClipboardType::Selection, 1).map(|_| ())
 }
 
 fn replace_selections_with_clipboard_impl(
@@ -2175,7 +2175,7 @@ pub static TYPABLE_COMMAND_MAP: Lazy<HashMap<&'static str, &'static TypableComma
             .collect()
     });
 
-pub(super) fn command_mode(cx: &mut Context) {
+pub(super) fn command_mode(cx: &mut Context) -> Option<Transaction> {
     let mut prompt = Prompt::new(
         ":".into(),
         Some(':'),
@@ -2269,4 +2269,6 @@ pub(super) fn command_mode(cx: &mut Context) {
     // Calculate initial completion
     prompt.recalculate_completion(cx.editor);
     cx.push_layer(Box::new(prompt));
+
+    None
 }

@@ -32,9 +32,11 @@ use tui::buffer::Buffer as Surface;
 use super::lsp::SignatureHelp;
 use super::statusline;
 
+type OnNextKey = Box<dyn FnOnce(&mut commands::Context, KeyEvent) -> Option<Transaction>>;
+
 pub struct EditorView {
     pub keymaps: Keymaps,
-    on_next_key: Option<Box<dyn FnOnce(&mut commands::Context, KeyEvent)>>,
+    on_next_key: Option<OnNextKey>,
     pseudo_pending: Vec<KeyEvent>,
     last_insert: (commands::MappableCommand, Vec<InsertEvent>),
     pub(crate) completion: Option<Completion>,
@@ -976,14 +978,23 @@ impl EditorView {
         if let Some(keyresult) = self.handle_keymap_event(Mode::Insert, cx, event) {
             match keyresult {
                 KeymapResult::NotFound => {
-                    if let Some(ch) = event.char() {
-                        commands::insert::insert_char(cx, ch)
+                    if let Some(transaction) = event
+                        .char()
+                        .and_then(|ch| commands::insert::insert_char(cx, ch))
+                    {
+                        let (view, doc) = current!(cx.editor);
+                        apply_transaction(&transaction, doc, view);
                     }
                 }
                 KeymapResult::Cancelled(pending) => {
                     for ev in pending {
                         match ev.char() {
-                            Some(ch) => commands::insert::insert_char(cx, ch),
+                            Some(ch) => {
+                                if let Some(transaction) = commands::insert::insert_char(cx, ch) {
+                                    let (view, doc) = current!(cx.editor);
+                                    apply_transaction(&transaction, doc, view);
+                                }
+                            }
                             None => {
                                 if let KeymapResult::Matched(command) =
                                     self.keymaps.get(Mode::Insert, ev)

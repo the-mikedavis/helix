@@ -8,7 +8,7 @@ use tui::text::{Span, Spans};
 
 use super::{align_view, push_jump, Align, Context, Editor, Open};
 
-use helix_core::{path, Selection};
+use helix_core::{path, Selection, Transaction};
 use helix_view::{apply_transaction, document::Mode, editor::Action, theme::Style};
 
 use crate::{
@@ -29,12 +29,12 @@ use std::{
 /// `gd`) will spam the "LSP inactive" status message confusingly.
 #[macro_export]
 macro_rules! language_server {
-    ($editor:expr, $doc:expr) => {
+    ($editor:expr, $doc:expr $(, $return:expr)?) => {
         match $doc.language_server() {
             Some(language_server) => language_server,
             None => {
                 $editor.set_status("Language server not active for current buffer");
-                return;
+                return $($return)?;
             }
         }
     };
@@ -308,7 +308,7 @@ fn diag_picker(
     .truncate_start(false)
 }
 
-pub fn symbol_picker(cx: &mut Context) {
+pub fn symbol_picker(cx: &mut Context) -> Option<Transaction> {
     fn nested_to_flat(
         list: &mut Vec<lsp::SymbolInformation>,
         file: &lsp::TextDocumentIdentifier,
@@ -329,7 +329,7 @@ pub fn symbol_picker(cx: &mut Context) {
     }
     let doc = doc!(cx.editor);
 
-    let language_server = language_server!(cx.editor, doc);
+    let language_server = language_server!(cx.editor, doc, None);
     let current_url = doc.url();
     let offset_encoding = language_server.offset_encoding();
 
@@ -357,13 +357,15 @@ pub fn symbol_picker(cx: &mut Context) {
                 compositor.push(Box::new(overlayed(picker)))
             }
         },
-    )
+    );
+
+    None
 }
 
-pub fn workspace_symbol_picker(cx: &mut Context) {
+pub fn workspace_symbol_picker(cx: &mut Context) -> Option<Transaction> {
     let doc = doc!(cx.editor);
     let current_url = doc.url();
-    let language_server = language_server!(cx.editor, doc);
+    let language_server = language_server!(cx.editor, doc, None);
     let offset_encoding = language_server.offset_encoding();
     let future = language_server.workspace_symbols("".to_string());
 
@@ -375,12 +377,14 @@ pub fn workspace_symbol_picker(cx: &mut Context) {
                 compositor.push(Box::new(overlayed(picker)))
             }
         },
-    )
+    );
+
+    None
 }
 
-pub fn diagnostics_picker(cx: &mut Context) {
+pub fn diagnostics_picker(cx: &mut Context) -> Option<Transaction> {
     let doc = doc!(cx.editor);
-    let language_server = language_server!(cx.editor, doc);
+    let language_server = language_server!(cx.editor, doc, None);
     if let Some(current_url) = doc.url() {
         let offset_encoding = language_server.offset_encoding();
         let diagnostics = cx
@@ -398,11 +402,13 @@ pub fn diagnostics_picker(cx: &mut Context) {
         );
         cx.push_layer(Box::new(overlayed(picker)));
     }
+
+    None
 }
 
-pub fn workspace_diagnostics_picker(cx: &mut Context) {
+pub fn workspace_diagnostics_picker(cx: &mut Context) -> Option<Transaction> {
     let doc = doc!(cx.editor);
-    let language_server = language_server!(cx.editor, doc);
+    let language_server = language_server!(cx.editor, doc, None);
     let current_url = doc.url();
     let offset_encoding = language_server.offset_encoding();
     let diagnostics = cx.editor.diagnostics.clone();
@@ -414,6 +420,8 @@ pub fn workspace_diagnostics_picker(cx: &mut Context) {
         offset_encoding,
     );
     cx.push_layer(Box::new(overlayed(picker)));
+
+    None
 }
 
 impl ui::menu::Item for lsp::CodeActionOrCommand {
@@ -483,10 +491,10 @@ fn action_fixes_diagnostics(action: &CodeActionOrCommand) -> bool {
     )
 }
 
-pub fn code_action(cx: &mut Context) {
+pub fn code_action(cx: &mut Context) -> Option<Transaction> {
     let (view, doc) = current!(cx.editor);
 
-    let language_server = language_server!(cx.editor, doc);
+    let language_server = language_server!(cx.editor, doc, None);
 
     let selection_range = doc.selection(view.id).primary();
     let offset_encoding = language_server.offset_encoding();
@@ -601,7 +609,9 @@ pub fn code_action(cx: &mut Context) {
             let popup = Popup::new("code-action", picker);
             compositor.replace_or_push("code-action", popup);
         },
-    )
+    );
+
+    None
 }
 pub fn execute_lsp_command(editor: &mut Editor, cmd: lsp::Command) {
     let doc = doc!(editor);
@@ -838,9 +848,9 @@ fn to_locations(definitions: Option<lsp::GotoDefinitionResponse>) -> Vec<lsp::Lo
     }
 }
 
-pub fn goto_definition(cx: &mut Context) {
+pub fn goto_definition(cx: &mut Context) -> Option<Transaction> {
     let (view, doc) = current!(cx.editor);
-    let language_server = language_server!(cx.editor, doc);
+    let language_server = language_server!(cx.editor, doc, None);
     let offset_encoding = language_server.offset_encoding();
 
     let pos = doc.position(view.id, offset_encoding);
@@ -854,11 +864,13 @@ pub fn goto_definition(cx: &mut Context) {
             goto_impl(editor, compositor, items, offset_encoding);
         },
     );
+
+    None
 }
 
-pub fn goto_type_definition(cx: &mut Context) {
+pub fn goto_type_definition(cx: &mut Context) -> Option<Transaction> {
     let (view, doc) = current!(cx.editor);
-    let language_server = language_server!(cx.editor, doc);
+    let language_server = language_server!(cx.editor, doc, None);
     let offset_encoding = language_server.offset_encoding();
 
     let pos = doc.position(view.id, offset_encoding);
@@ -872,11 +884,13 @@ pub fn goto_type_definition(cx: &mut Context) {
             goto_impl(editor, compositor, items, offset_encoding);
         },
     );
+
+    None
 }
 
-pub fn goto_implementation(cx: &mut Context) {
+pub fn goto_implementation(cx: &mut Context) -> Option<Transaction> {
     let (view, doc) = current!(cx.editor);
-    let language_server = language_server!(cx.editor, doc);
+    let language_server = language_server!(cx.editor, doc, None);
     let offset_encoding = language_server.offset_encoding();
 
     let pos = doc.position(view.id, offset_encoding);
@@ -890,11 +904,13 @@ pub fn goto_implementation(cx: &mut Context) {
             goto_impl(editor, compositor, items, offset_encoding);
         },
     );
+
+    None
 }
 
-pub fn goto_reference(cx: &mut Context) {
+pub fn goto_reference(cx: &mut Context) -> Option<Transaction> {
     let (view, doc) = current!(cx.editor);
-    let language_server = language_server!(cx.editor, doc);
+    let language_server = language_server!(cx.editor, doc, None);
     let offset_encoding = language_server.offset_encoding();
 
     let pos = doc.position(view.id, offset_encoding);
@@ -908,6 +924,8 @@ pub fn goto_reference(cx: &mut Context) {
             goto_impl(editor, compositor, items, offset_encoding);
         },
     );
+
+    None
 }
 
 #[derive(PartialEq, Eq)]
@@ -916,8 +934,10 @@ pub enum SignatureHelpInvoked {
     Automatic,
 }
 
-pub fn signature_help(cx: &mut Context) {
-    signature_help_impl(cx, SignatureHelpInvoked::Manual)
+pub fn signature_help(cx: &mut Context) -> Option<Transaction> {
+    signature_help_impl(cx, SignatureHelpInvoked::Manual);
+
+    None
 }
 
 pub fn signature_help_impl(cx: &mut Context, invoked: SignatureHelpInvoked) {
@@ -1034,9 +1054,9 @@ pub fn signature_help_impl(cx: &mut Context, invoked: SignatureHelpInvoked) {
     );
 }
 
-pub fn hover(cx: &mut Context) {
+pub fn hover(cx: &mut Context) -> Option<Transaction> {
     let (view, doc) = current!(cx.editor);
-    let language_server = language_server!(cx.editor, doc);
+    let language_server = language_server!(cx.editor, doc, None);
     let offset_encoding = language_server.offset_encoding();
 
     // TODO: factor out a doc.position_identifier() that returns lsp::TextDocumentPositionIdentifier
@@ -1082,9 +1102,11 @@ pub fn hover(cx: &mut Context) {
             }
         },
     );
+
+    None
 }
 
-pub fn rename_symbol(cx: &mut Context) {
+pub fn rename_symbol(cx: &mut Context) -> Option<Transaction> {
     let (view, doc) = current_ref!(cx.editor);
     let text = doc.text().slice(..);
     let primary_selection = doc.selection(view.id).primary();
@@ -1120,11 +1142,13 @@ pub fn rename_symbol(cx: &mut Context) {
             }
         },
     );
+
+    None
 }
 
-pub fn select_references_to_symbol_under_cursor(cx: &mut Context) {
+pub fn select_references_to_symbol_under_cursor(cx: &mut Context) -> Option<Transaction> {
     let (view, doc) = current!(cx.editor);
-    let language_server = language_server!(cx.editor, doc);
+    let language_server = language_server!(cx.editor, doc, None);
     let offset_encoding = language_server.offset_encoding();
 
     let pos = doc.position(view.id, offset_encoding);
@@ -1161,4 +1185,6 @@ pub fn select_references_to_symbol_under_cursor(cx: &mut Context) {
             doc.set_selection(view.id, selection);
         },
     );
+
+    None
 }
