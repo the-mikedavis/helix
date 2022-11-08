@@ -178,6 +178,8 @@ pub struct Document {
 
     diff_handle: Option<DiffHandle>,
     version_control_head: Option<Arc<ArcSwap<Box<str>>>>,
+    // when document was used for most-recent-used buffer picker
+    pub focused_at: std::time::Instant,
 }
 
 /// Inlay hints for a single `(Document, View)` combo.
@@ -505,6 +507,7 @@ impl Document {
             language_server: None,
             diff_handle: None,
             config,
+            focused_at: std::time::Instant::now(),
             version_control_head: None,
         }
     }
@@ -916,6 +919,11 @@ impl Document {
         if self.selections.get(&view_id).is_none() {
             self.reset_selection(view_id);
         }
+    }
+
+    /// Mark document as recent used for MRU sorting
+    pub fn mark_as_focused(&mut self) {
+        self.focused_at = std::time::Instant::now();
     }
 
     /// Remove a view's selection and inlay hints from this document.
