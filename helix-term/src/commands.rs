@@ -55,15 +55,19 @@ use crate::{
     job::Callback,
     keymap::ReverseKeymap,
     ui::{
-        self, editor::InsertEvent, lsp::SignatureHelp, overlay::overlayed, FilePicker, Picker,
-        Popup, Prompt, PromptEvent,
+        self, editor::InsertEvent, lsp::SignatureHelp, overlay::overlayed, DynamicPicker,
+        FilePicker, Picker, Popup, Prompt, PromptEvent,
     },
 };
 
 use crate::job::{self, Jobs};
-use futures_util::StreamExt;
-use std::{collections::HashMap, fmt, future::Future};
-use std::{collections::HashSet, num::NonZeroUsize};
+use futures_util::{FutureExt, StreamExt};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+    future::Future,
+    num::NonZeroUsize,
+};
 
 use std::{
     borrow::Cow,
@@ -1993,13 +1997,15 @@ fn global_search(cx: &mut Context) {
         path: PathBuf,
         /// 0 indexed lines
         line_num: usize,
+        line_content: String,
     }
 
     impl FileResult {
-        fn new(path: &Path, line_num: usize) -> Self {
+        fn new(path: &Path, line_num: usize, line_content: String) -> Self {
             Self {
                 path: path.to_path_buf(),
                 line_num,
+                line_content,
             }
         }
     }
@@ -2011,166 +2017,182 @@ fn global_search(cx: &mut Context) {
             let relative_path = helix_core::path::get_relative_path(&self.path)
                 .to_string_lossy()
                 .into_owned();
-            if current_path
+
+            let is_current = current_path
                 .as_ref()
                 .map(|p| p == &self.path)
-                .unwrap_or(false)
-            {
-                format!("{} (*)", relative_path).into()
-            } else {
-                relative_path.into()
-            }
+                .unwrap_or(false);
+
+            format!(
+                "{}:{}{}",
+                relative_path,
+                self.line_num,
+                if is_current { " (*)" } else { "" }
+            )
+            .into()
+        }
+
+        fn sort_text(&self, _current_path: &Self::Data) -> Cow<str> {
+            Cow::Borrowed(&self.line_content)
+        }
+
+        fn filter_text(&self, _current_path: &Self::Data) -> Cow<str> {
+            Cow::Borrowed(&self.line_content)
         }
     }
 
-    let (all_matches_sx, all_matches_rx) = tokio::sync::mpsc::unbounded_channel::<FileResult>();
     let config = cx.editor.config();
     let smart_case = config.search.smart_case;
     let file_picker_config = config.file_picker.clone();
 
-    let reg = cx.register.unwrap_or('/');
+    let current_path = doc_mut!(cx.editor).path().cloned();
 
-    let completions = search_completions(cx, Some(reg));
-    ui::regex_prompt(
-        cx,
-        "global-search:".into(),
-        Some(reg),
-        move |_editor: &Editor, input: &str| {
-            completions
-                .iter()
-                .filter(|comp| comp.starts_with(input))
-                .map(|comp| (0.., std::borrow::Cow::Owned(comp.clone())))
-                .collect()
-        },
-        move |_editor, regex, event| {
-            if event != PromptEvent::Validate {
+    let mut picker = FilePicker::new(
+        Vec::new(),
+        current_path,
+        move |cx, FileResult { path, line_num, .. }, action| {
+            match cx.editor.open(path, action) {
+                Ok(_) => {}
+                Err(e) => {
+                    cx.editor
+                        .set_error(format!("Failed to open file '{}': {}", path.display(), e));
+                    return;
+                }
+            }
+
+            let line_num = *line_num;
+            let (view, doc) = current!(cx.editor);
+            let text = doc.text();
+            if line_num >= text.len_lines() {
+                cx.editor.set_error(
+                    "The line you jumped to does not exist anymore because the file has changed.",
+                );
                 return;
             }
+            let start = text.line_to_char(line_num);
+            let end = text.line_to_char((line_num + 1).min(text.len_lines()));
 
-            if let Ok(matcher) = RegexMatcherBuilder::new()
-                .case_smart(smart_case)
-                .build(regex.as_str())
-            {
-                let searcher = SearcherBuilder::new()
-                    .binary_detection(BinaryDetection::quit(b'\x00'))
-                    .build();
-
-                let search_root = std::env::current_dir()
-                    .expect("Global search error: Failed to get current dir");
-                let dedup_symlinks = file_picker_config.deduplicate_links;
-                let absolute_root = search_root
-                    .canonicalize()
-                    .unwrap_or_else(|_| search_root.clone());
-
-                WalkBuilder::new(search_root)
-                    .hidden(file_picker_config.hidden)
-                    .parents(file_picker_config.parents)
-                    .ignore(file_picker_config.ignore)
-                    .follow_links(file_picker_config.follow_symlinks)
-                    .git_ignore(file_picker_config.git_ignore)
-                    .git_global(file_picker_config.git_global)
-                    .git_exclude(file_picker_config.git_exclude)
-                    .max_depth(file_picker_config.max_depth)
-                    .filter_entry(move |entry| {
-                        filter_picker_entry(entry, &absolute_root, dedup_symlinks)
-                    })
-                    .build_parallel()
-                    .run(|| {
-                        let mut searcher = searcher.clone();
-                        let matcher = matcher.clone();
-                        let all_matches_sx = all_matches_sx.clone();
-                        Box::new(move |entry: Result<DirEntry, ignore::Error>| -> WalkState {
-                            let entry = match entry {
-                                Ok(entry) => entry,
-                                Err(_) => return WalkState::Continue,
-                            };
-
-                            match entry.file_type() {
-                                Some(entry) if entry.is_file() => {}
-                                // skip everything else
-                                _ => return WalkState::Continue,
-                            };
-
-                            let result = searcher.search_path(
-                                &matcher,
-                                entry.path(),
-                                sinks::UTF8(|line_num, _| {
-                                    all_matches_sx
-                                        .send(FileResult::new(entry.path(), line_num as usize - 1))
-                                        .unwrap();
-
-                                    Ok(true)
-                                }),
-                            );
-
-                            if let Err(err) = result {
-                                log::error!(
-                                    "Global search error: {}, {}",
-                                    entry.path().display(),
-                                    err
-                                );
-                            }
-                            WalkState::Continue
-                        })
-                    });
-            } else {
-                // Otherwise do nothing
-                // log::warn!("Global Search Invalid Pattern")
-            }
+            doc.set_selection(view.id, Selection::single(start, end));
+            align_view(doc, view, Align::Center);
+        },
+        |_editor, FileResult { path, line_num, .. }| {
+            Some((path.clone().into(), Some((*line_num, *line_num))))
         },
     );
 
-    let current_path = doc_mut!(cx.editor).path().cloned();
+    if let Some(initial_query) = cx.register.and_then(|reg| cx.editor.registers.last(reg)) {
+        picker = picker.with_line(initial_query.clone(), cx.editor);
+    }
 
-    let show_picker = async move {
-        let all_matches: Vec<FileResult> =
-            UnboundedReceiverStream::new(all_matches_rx).collect().await;
-        let call: job::Callback = Callback::EditorCompositor(Box::new(
-            move |editor: &mut Editor, compositor: &mut Compositor| {
-                if all_matches.is_empty() {
-                    editor.set_status("No matches found");
-                    return;
-                }
+    let get_files = move |query: String, cx: &mut compositor::Context| {
+        // Show empty results for an empty query.
+        if query.is_empty() {
+            return async move { Ok(Vec::new()) }.boxed();
+        }
 
-                let picker = FilePicker::new(
-                    all_matches,
-                    current_path,
-                    move |cx, FileResult { path, line_num }, action| {
-                        match cx.editor.open(path, action) {
-                            Ok(_) => {}
-                            Err(e) => {
-                                cx.editor.set_error(format!(
-                                    "Failed to open file '{}': {}",
-                                    path.display(),
-                                    e
-                                ));
-                                return;
-                            }
-                        }
+        let (all_matches_sx, all_matches_rx) = tokio::sync::mpsc::unbounded_channel::<FileResult>();
 
-                        let line_num = *line_num;
-                        let (view, doc) = current!(cx.editor);
-                        let text = doc.text();
-                        if line_num >= text.len_lines() {
-                            cx.editor.set_error("The line you jumped to does not exist anymore because the file has changed.");
-                            return;
-                        }
-                        let start = text.line_to_char(line_num);
-                        let end = text.line_to_char((line_num + 1).min(text.len_lines()));
+        let matcher = match RegexMatcherBuilder::new()
+            .case_smart(smart_case)
+            .build(&query)
+        {
+            Ok(matcher) => matcher,
+            // TODO: improve error message. We need the compositor here to add a
+            // popup like in regex_prompt. The builder error here contains newlines
+            // to point out syntax errors and we need a popup to render it well
+            // (rather than the statusline).
+            Err(err) => {
+                cx.jobs.callback(async move {
+                    let callback =
+                        Callback::EditorCompositor(Box::new(move |_editor, compositor| {
+                            let contents = ui::Text::new(format!("{}", err));
+                            let size = compositor.size();
+                            let mut popup = Popup::new("invalid-regex", contents)
+                                .position(Some(Position::new(size.height as usize - 2, 0)))
+                                .auto_close(true);
+                            popup.required_size((size.width, size.height));
+                            compositor.replace_or_push("invalid-regex", popup);
+                        }));
+                    Ok(callback)
+                });
+                return async move { Err(anyhow::anyhow!("Failed to compile regex")) }.boxed();
+            }
+        };
 
-                        doc.set_selection(view.id, Selection::single(start, end));
-                        align_view(doc, view, Align::Center);
-                    },
-                    |_editor, FileResult { path, line_num }| {
-                        Some((path.clone().into(), Some((*line_num, *line_num))))
-                    },
-                );
-                compositor.push(Box::new(overlayed(picker)));
-            },
-        ));
-        Ok(call)
+        let searcher = SearcherBuilder::new()
+            .binary_detection(BinaryDetection::quit(b'\x00'))
+            .build();
+
+        let search_root =
+            std::env::current_dir().expect("Global search error: Failed to get current dir");
+        let dedup_symlinks = file_picker_config.deduplicate_links;
+        let absolute_root = search_root
+            .canonicalize()
+            .unwrap_or_else(|_| search_root.clone());
+
+        WalkBuilder::new(search_root)
+            .hidden(file_picker_config.hidden)
+            .parents(file_picker_config.parents)
+            .ignore(file_picker_config.ignore)
+            .follow_links(file_picker_config.follow_symlinks)
+            .git_ignore(file_picker_config.git_ignore)
+            .git_global(file_picker_config.git_global)
+            .git_exclude(file_picker_config.git_exclude)
+            .max_depth(file_picker_config.max_depth)
+            // We always want to ignore the .git directory, otherwise if
+            // `ignore` is turned off above, we end up with a lot of noise
+            // in our picker.
+            .filter_entry(move |entry| filter_picker_entry(entry, &absolute_root, dedup_symlinks))
+            .build_parallel()
+            .run(|| {
+                let mut searcher = searcher.clone();
+                let matcher = matcher.clone();
+                let all_matches_sx = all_matches_sx.clone();
+                Box::new(move |entry: Result<DirEntry, ignore::Error>| -> WalkState {
+                    let entry = match entry {
+                        Ok(entry) => entry,
+                        Err(_) => return WalkState::Continue,
+                    };
+
+                    match entry.file_type() {
+                        Some(entry) if entry.is_file() => {}
+                        // skip everything else
+                        _ => return WalkState::Continue,
+                    };
+
+                    let result = searcher.search_path(
+                        &matcher,
+                        entry.path(),
+                        sinks::UTF8(|line_num, line_content| {
+                            all_matches_sx
+                                .send(FileResult::new(
+                                    entry.path(),
+                                    line_num as usize - 1,
+                                    line_content.to_string(),
+                                ))
+                                .unwrap();
+
+                            Ok(true)
+                        }),
+                    );
+
+                    if let Err(err) = result {
+                        log::error!("Global search error: {}, {}", entry.path().display(), err);
+                    }
+                    WalkState::Continue
+                })
+            });
+
+        async move {
+            let all_matches: Vec<FileResult> =
+                UnboundedReceiverStream::new(all_matches_rx).collect().await;
+            Ok(all_matches)
+        }
+        .boxed()
     };
-    cx.jobs.callback(show_picker);
+
+    let dyn_picker = DynamicPicker::new(picker, Box::new(get_files));
+    cx.push_layer(Box::new(overlayed(dyn_picker)));
 }
 
 enum Extend {

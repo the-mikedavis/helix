@@ -148,6 +148,11 @@ impl<T: Item> FilePicker<T> {
         self
     }
 
+    pub fn with_line(mut self, line: String, editor: &Editor) -> Self {
+        self.picker.set_line(line, editor);
+        self
+    }
+
     fn current_file(&self, editor: &Editor) -> Option<FileLocation> {
         self.picker
             .selection()
@@ -638,6 +643,10 @@ impl<T: Item> Picker<T> {
         }
         EventResult::Consumed(None)
     }
+
+    pub fn set_line(&mut self, line: String, editor: &Editor) {
+        self.prompt.set_line(line, editor);
+    }
 }
 
 // process:
@@ -904,7 +913,7 @@ impl<T: Item + 'static> Component for Picker<T> {
 /// Returns a new list of options to replace the contents of the picker
 /// when called with the current picker query,
 pub type DynQueryCallback<T> =
-    Box<dyn Fn(String, &mut Editor) -> BoxFuture<'static, anyhow::Result<Vec<T>>>>;
+    Box<dyn Fn(String, &mut Context) -> BoxFuture<'static, anyhow::Result<Vec<T>>>>;
 
 /// A picker that updates its contents via a callback whenever the
 /// query string changes. Useful for live grep, workspace symbols, etc.
@@ -941,7 +950,7 @@ impl<T: Item + Send + 'static> Component for DynamicPicker<T> {
 
         self.query.clone_from(current_query);
 
-        let new_options = (self.query_callback)(current_query.to_owned(), cx.editor);
+        let new_options = (self.query_callback)(current_query.to_owned(), cx);
 
         cx.jobs.callback(async move {
             let new_options = new_options.await?;
