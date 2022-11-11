@@ -77,3 +77,28 @@ Keys can be disabled by binding them to the `no_op` command.
 
 A list of commands is available in the [Keymap](https://docs.helix-editor.com/keymap.html) documentation
  and in the source code at [`helix-term/src/commands.rs`](https://github.com/helix-editor/helix/blob/master/helix-term/src/commands.rs) at the invocation of `static_commands!` macro and the `TypableCommandList`.
+
+### Typable commands
+
+Typable commands like `:write` or `:buffer-close` can be mapped as well.
+Remember to keep the `:` to indicate it's a typable command.
+
+```toml
+[keys.normal]
+D = ":buffer-close"
+```
+
+Typable commands can be found in the [Commands section](./commands.html).
+
+### Macro key-sequences
+
+You can also bind keys to macro key-sequences. Start the command with `@` to
+indicate that it's a macro key-sequence. Then write any number of keys.
+
+If any keys need more than one character to write, surround the key in angle
+brackets.
+
+```toml
+[keys.normal]
+D = "@t<ret>d" # deletes to the end of line
+```

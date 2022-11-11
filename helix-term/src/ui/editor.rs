@@ -41,6 +41,8 @@ pub struct EditorView {
     on_next_key: Option<OnKeyCallback>,
     pseudo_pending: Vec<KeyEvent>,
     pub(crate) last_insert: (commands::MappableCommand, Vec<InsertEvent>),
+    /// A stack of commands which are awaiting execution.
+    pending_commands: Vec<commands::MappableCommand>,
     pub(crate) completion: Option<Completion>,
     spinners: ProgressSpinners,
 }
@@ -66,6 +68,7 @@ impl EditorView {
             on_next_key: None,
             pseudo_pending: Vec::new(),
             last_insert: (commands::MappableCommand::normal_mode, Vec::new()),
+            pending_commands: Vec::new(),
             completion: None,
             spinners: ProgressSpinners::default(),
         }
@@ -791,58 +794,64 @@ impl EditorView {
         cxt: &mut commands::Context,
         event: KeyEvent,
     ) -> Option<KeymapResult> {
-        let mut last_mode = mode;
         self.pseudo_pending.extend(self.keymaps.pending());
         let key_result = self.keymaps.get(mode, event);
         cxt.editor.autoinfo = self.keymaps.sticky().map(|node| node.infobox());
 
-        let mut execute_command = |command: &commands::MappableCommand| {
-            command.execute(cxt);
-            let current_mode = cxt.editor.mode();
-            match (last_mode, current_mode) {
-                (Mode::Normal, Mode::Insert) => {
-                    // HAXX: if we just entered insert mode from normal, clear key buf
-                    // and record the command that got us into this mode.
-
-                    // how we entered insert mode is important, and we should track that so
-                    // we can repeat the side effect.
-                    self.last_insert.0 = command.clone();
-                    self.last_insert.1.clear();
-
-                    commands::signature_help_impl(cxt, commands::SignatureHelpInvoked::Automatic);
-                }
-                (Mode::Insert, Mode::Normal) => {
-                    // if exiting insert mode, remove completion
-                    self.completion = None;
-                    cxt.editor.completion_request_handle = None;
-
-                    // TODO: Use an on_mode_change hook to remove signature help
-                    cxt.jobs.callback(async {
-                        let call: job::Callback =
-                            Callback::EditorCompositor(Box::new(|_editor, compositor| {
-                                compositor.remove(SignatureHelp::ID);
-                            }));
-                        Ok(call)
-                    });
-                }
-                _ => (),
-            }
-            last_mode = current_mode;
-        };
-
         match &key_result {
             KeymapResult::Matched(command) => {
-                execute_command(command);
+                self.handle_command(cxt, command);
             }
             KeymapResult::Pending(node) => cxt.editor.autoinfo = Some(node.infobox()),
             KeymapResult::MatchedSequence(commands) => {
-                for command in commands {
-                    execute_command(command);
+                if commands.is_empty() {
+                    return None;
                 }
+                self.handle_command(cxt, &commands[0]);
+                self.pending_commands = commands[1..commands.len()].to_vec();
+                // Reverse pending_commands: it acts as a stack.
+                self.pending_commands.reverse();
+                cxt.compose_callback(Box::new(|compositor, cx| {
+                    compositor.handle_event(&Event::ExecutePendingCommands, cx);
+                }));
             }
             KeymapResult::NotFound | KeymapResult::Cancelled(_) => return Some(key_result),
         }
         None
+    }
+
+    fn handle_command(&mut self, cx: &mut commands::Context, command: &commands::MappableCommand) {
+        let last_mode = cx.editor.mode();
+        command.execute(cx);
+        let current_mode = cx.editor.mode();
+        match (last_mode, current_mode) {
+            (Mode::Normal, Mode::Insert) => {
+                // HAXX: if we just entered insert mode from normal, clear key buf
+                // and record the command that got us into this mode.
+
+                // how we entered insert mode is important, and we should track that so
+                // we can repeat the side effect.
+                self.last_insert.0 = command.clone();
+                self.last_insert.1.clear();
+
+                commands::signature_help_impl(cx, commands::SignatureHelpInvoked::Automatic);
+            }
+            (Mode::Insert, Mode::Normal) => {
+                // if exiting insert mode, remove completion
+                self.completion = None;
+                cx.editor.completion_request_handle = None;
+
+                // TODO: Use an on_mode_change hook to remove signature help
+                cx.jobs.callback(async {
+                    let call: job::Callback =
+                        Callback::EditorCompositor(Box::new(|_editor, compositor| {
+                            compositor.remove(SignatureHelp::ID);
+                        }));
+                    Ok(call)
+                });
+            }
+            _ => (),
+        }
     }
 
     fn insert_mode(&mut self, cx: &mut commands::Context, event: KeyEvent) {
@@ -1314,6 +1323,12 @@ impl Component for EditorView {
                     None => self.pseudo_pending.clear(),
                 }
 
+                if !self.pending_commands.is_empty() {
+                    cx.compose_callback(Box::new(|compositor, cx| {
+                        compositor.handle_event(&Event::ExecutePendingCommands, cx);
+                    }));
+                }
+
                 // appease borrowck
                 let callback = cx.callback.take();
 
@@ -1352,6 +1367,78 @@ impl Component for EditorView {
                     }
                 }
                 EventResult::Consumed(None)
+            }
+            Event::ExecutePendingCommands => {
+                if self.pending_commands.is_empty() {
+                    return EventResult::Ignored(None);
+                }
+
+                let focus = view!(cx.editor).id;
+
+                // The pending command stack is asserted to be non-empty above.
+                match (
+                    self.on_next_key.take(),
+                    self.pending_commands.pop().unwrap(),
+                ) {
+                    // Check for an on-next-key callback. If there is one and the next command
+                    // is a macro, feed the first key-event into the callback directly.
+                    (Some(on_next_key), commands::MappableCommand::Macro { sequence })
+                        if !sequence.is_empty() =>
+                    {
+                        on_next_key(&mut cx, sequence[0]);
+                        self.pseudo_pending.clear();
+
+                        // If the macro wasn't consumed, push it back onto the pending
+                        // command stack.
+                        if sequence.len() > 1 {
+                            let command = commands::MappableCommand::Macro {
+                                sequence: sequence[1..sequence.len()].to_vec(),
+                            };
+                            self.pending_commands.push(command);
+                        }
+                    }
+                    // If there is an on-next-key but the command is not a macro, bail out
+                    // and await further KeyEvents. The branch for KeyEvents will trigger
+                    // another Continue event when it the callback has been executed, so
+                    // pending_commands will not be lost forever.
+                    (Some(callback), command) => {
+                        self.on_next_key = Some(callback);
+                        self.pending_commands.push(command);
+                        return EventResult::Ignored(None);
+                    }
+                    // Otherwise, handle the command.
+                    (None, command) => {
+                        self.handle_command(&mut cx, &command);
+                    }
+                }
+
+                self.on_next_key = cx.on_next_key_callback.take();
+
+                let callback = cx.callback.take();
+
+                // if the command consumed the last view, skip the render.
+                // on the next loop cycle the Application will then terminate.
+                if cx.editor.should_close() {
+                    return EventResult::Ignored(None);
+                }
+
+                // if the focused view still exists and wasn't closed
+                if cx.editor.tree.contains(focus) {
+                    let config = cx.editor.config();
+                    let mode = cx.editor.mode();
+                    let view = view_mut!(cx.editor, focus);
+                    let doc = doc_mut!(cx.editor, &view.doc);
+
+                    view.ensure_cursor_in_view(doc, config.scrolloff);
+
+                    // Store a history state if not in insert mode. This also takes care of
+                    // committing changes when leaving insert mode.
+                    if mode != Mode::Insert {
+                        doc.append_changes_to_history(view);
+                    }
+                }
+
+                EventResult::Consumed(callback)
             }
         }
     }

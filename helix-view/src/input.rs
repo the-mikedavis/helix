@@ -15,6 +15,9 @@ pub enum Event {
     Paste(String),
     Resize(u16, u16),
     IdleTimeout,
+    /// A fake event which instructions EditorView to handle any
+    /// pending commands in a sequence.
+    ExecutePendingCommands,
 }
 
 #[derive(Debug, PartialOrd, PartialEq, Eq, Clone, Copy, Hash)]
