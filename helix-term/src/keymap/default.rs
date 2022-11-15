@@ -340,6 +340,7 @@ pub fn default() -> HashMap<Mode, Keymap> {
 
         "C-a" => increment,
         "C-x" => decrement,
+        "A-b" => make_search_word_bounded,
     });
     let mut select = normal.clone();
     select.merge_nodes(keymap!({ "Select mode"
