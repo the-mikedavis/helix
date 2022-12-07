@@ -111,8 +111,9 @@ impl<'a> Context<'a> {
 
     /// Push a new component onto the compositor.
     pub fn push_layer(&mut self, component: Box<dyn Component>) {
-        self.compose_callback(Box::new(|compositor, _| {
+        self.compose_callback(Box::new(|compositor, cx| {
             compositor.push(component);
+            cx.editor.reset_idle_timer();
         }));
     }
 
