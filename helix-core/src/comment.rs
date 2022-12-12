@@ -94,6 +94,31 @@ pub fn toggle_line_comments(doc: &Rope, selection: &Selection, token: Option<&st
     Transaction::change(doc, changes.into_iter())
 }
 
+/// Return token if the current line is commented.
+/// Otherwise, return None.
+pub fn continue_comment<'a>(doc: &Rope, line: usize, tokens: &'a [String]) -> Option<&'a str> {
+    // TODO: don't continue shebangs.
+    if tokens.is_empty() {
+        return None;
+    }
+
+    let mut result = None;
+    let line_slice = doc.line(line);
+    let pos = find_first_non_whitespace_char(line_slice)?;
+    let len = line_slice.len_chars();
+    for token in tokens {
+        // line can be shorter than pos + token len
+        let fragment = Cow::from(line_slice.slice(pos..std::cmp::min(pos + token.len(), len)));
+        if fragment == *token {
+            // Purposefully not break here to overwrite the result when a longer comment token
+            // matches.
+            result = Some(token.as_str());
+        }
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
