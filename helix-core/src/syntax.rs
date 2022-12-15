@@ -1149,6 +1149,33 @@ impl Syntax {
         result
     }
 
+    /// Finds the smallest node that spans the given range.
+    ///
+    /// This function corresponds to [Node::descendant_for_byte_range] but works across
+    /// injection layers.
+    pub fn descendant_for_byte_range(&self, start: usize, end: usize) -> Option<Node> {
+        let mut containing_layer = &self.layers[self.root];
+
+        // Find the deepst layer which contains the range.
+        for (_, layer) in self.layers.iter() {
+            if layer.depth > containing_layer.depth
+                && layer.ranges.iter().any(|range| {
+                    range.start_byte <= start
+                        && range.end_byte >= end
+                        // If the range is exactly the layer range, use a higher layer.
+                        && !(range.start_byte == start && range.end_byte == end)
+                })
+            {
+                containing_layer = layer;
+            }
+        }
+
+        containing_layer
+            .tree()
+            .root_node()
+            .descendant_for_byte_range(start, end)
+    }
+
     // Commenting
     // comment_strings_for_pos
     // is_commented

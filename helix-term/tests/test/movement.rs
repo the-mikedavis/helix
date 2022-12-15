@@ -513,3 +513,87 @@ async fn select_mode_tree_sitter_prev_function_goes_backwards_to_object() -> any
 
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tree_sitter_motions_work_across_injections() -> anyhow::Result<()> {
+    let files = vec![(PathBuf::from("foo.html"), Position::default())];
+
+    test_with_config(
+        Args {
+            files: files.clone(),
+            ..Default::default()
+        },
+        Config::default(),
+        helpers::test_syntax_conf(None),
+        (
+            "<script>let #[|x]# = 1;</script>",
+            "<A-o>",
+            "<script>let #[|x = 1]#;</script>",
+        ),
+    )
+    .await?;
+
+    // When the full injected layer is selected, expand_selection jumps to
+    // a more shallow layer.
+    test_with_config(
+        Args {
+            files: files.clone(),
+            ..Default::default()
+        },
+        Config::default(),
+        helpers::test_syntax_conf(None),
+        (
+            "<script>#[|let x = 1;]#</script>",
+            "<A-o>",
+            "#[|<script>let x = 1;</script>]#",
+        ),
+    )
+    .await?;
+
+    test_with_config(
+        Args {
+            files: files.clone(),
+            ..Default::default()
+        },
+        Config::default(),
+        helpers::test_syntax_conf(None),
+        (
+            "<script>let #[|x = 1]#;</script>",
+            "<A-i>",
+            "<script>let #[|x]# = 1;</script>",
+        ),
+    )
+    .await?;
+
+    test_with_config(
+        Args {
+            files: files.clone(),
+            ..Default::default()
+        },
+        Config::default(),
+        helpers::test_syntax_conf(None),
+        (
+            "<script>let #[|x]# = 1;</script>",
+            "<A-n>",
+            "<script>let x #[|=]# 1;</script>",
+        ),
+    )
+    .await?;
+
+    test_with_config(
+        Args {
+            files,
+            ..Default::default()
+        },
+        Config::default(),
+        helpers::test_syntax_conf(None),
+        (
+            "<script>let #[|x]# = 1;</script>",
+            "<A-p>",
+            "<script>#[|let]# x = 1;</script>",
+        ),
+    )
+    .await?;
+
+    Ok(())
+}

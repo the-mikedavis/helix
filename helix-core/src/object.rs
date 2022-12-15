@@ -49,14 +49,11 @@ fn select_node_impl<F>(
 where
     F: Fn(Node, usize, usize) -> Option<Node>,
 {
-    let tree = syntax.tree();
-
     selection.transform(|range| {
         let from = text.char_to_byte(range.from());
         let to = text.char_to_byte(range.to());
 
-        let node = match tree
-            .root_node()
+        let node = match syntax
             .descendant_for_byte_range(from, to)
             .and_then(|node| select_fn(node, from, to))
         {
