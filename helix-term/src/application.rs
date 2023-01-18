@@ -16,6 +16,7 @@ use helix_view::{
     Align, Editor,
 };
 use serde_json::json;
+use tokio::time::{sleep, Instant, Sleep};
 use tui::backend::Backend;
 
 use crate::{
@@ -32,8 +33,9 @@ use log::{debug, error, warn};
 use std::{
     io::{stdin, stdout},
     path::Path,
+    pin::Pin,
     sync::Arc,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use anyhow::{Context, Error};
@@ -76,6 +78,7 @@ pub struct Application {
     jobs: Jobs,
     lsp_progress: LspProgressMap,
     last_render: Instant,
+    render_timer: Pin<Box<Sleep>>,
 }
 
 #[cfg(feature = "integration")]
@@ -247,6 +250,7 @@ impl Application {
             jobs: Jobs::new(),
             lsp_progress: LspProgressMap::new(),
             last_render: Instant::now(),
+            render_timer: Box::pin(sleep(Duration::MAX)),
         };
 
         Ok(app)
@@ -329,6 +333,10 @@ impl Application {
                 Some(callback) = self.jobs.wait_futures.next() => {
                     self.jobs.handle_callback(&mut self.editor, &mut self.compositor, callback);
                     self.render().await;
+                }
+                _ = &mut self.render_timer => {
+                    self.render().await;
+                    self.render_timer.as_mut().reset(Instant::now() + Duration::from_secs(86400 * 365 * 30));
                 }
                 event = self.editor.wait_event() => {
                     let _idle_handled = self.handle_editor_event(event).await;
@@ -577,11 +585,14 @@ impl Application {
             EditorEvent::LanguageServerMessage((id, call)) => {
                 self.handle_language_server_message(call, id).await;
                 // limit render calls for fast language server messages
-                let last = self.editor.language_servers.incoming.is_empty();
 
-                if last || self.last_render.elapsed() > LSP_DEADLINE {
+                if self.last_render.elapsed() > LSP_DEADLINE {
                     self.render().await;
                     self.last_render = Instant::now();
+                } else {
+                    self.render_timer
+                        .as_mut()
+                        .reset(Instant::now() + LSP_DEADLINE);
                 }
             }
             EditorEvent::DebuggerEvent(payload) => {
