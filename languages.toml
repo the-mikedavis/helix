@@ -240,6 +240,7 @@ command = ["golangci-lint", "run", "--output.json.path=stdout", "--show-stats=fa
 command = "rust-analyzer"
 
 [language-server.rust-analyzer.config]
+check.command = "clippy"
 inlayHints.bindingModeHints.enable = false
 inlayHints.closingBraceHints.minLines = 10
 inlayHints.closureReturnTypeHints.enable = "with_block"
@@ -353,6 +354,7 @@ block-comment-tokens = [
 language-servers = [ "rust-analyzer" ]
 indent = { tab-width = 4, unit = "    " }
 persistent-diagnostic-sources = ["rustc", "clippy"]
+rulers = [99]
 
 [language.auto-pairs]
 '(' = ')'
@@ -2393,6 +2395,7 @@ scope = "source.erlang"
 injection-regex = "erl(ang)?"
 file-types = ["erl", "hrl", "app", { glob = "rebar.config" }, { glob = "rebar.lock" }, { glob = "*.app.src" }]
 roots = ["rebar.config"]
+rulers = [80]
 shebangs = ["escript"]
 comment-token = "%%"
 indent = { tab-width = 4, unit = "    " }

@@ -649,7 +649,7 @@ impl Default for LspConfig {
     fn default() -> Self {
         Self {
             enable: true,
-            display_progress_messages: false,
+            display_progress_messages: true,
             display_messages: true,
             auto_signature_help: true,
             display_signature_help_docs: true,
@@ -699,6 +699,7 @@ impl Default for StatusLineConfig {
             center: vec![],
             right: vec![
                 E::Diagnostics,
+                E::WorkspaceDiagnostics,
                 E::Selections,
                 E::Register,
                 E::Position,
@@ -1197,7 +1198,7 @@ impl Default for Config {
             default_yank_register: '"',
             auto_save: AutoSave::default(),
             idle_timeout: Duration::from_millis(250),
-            completion_timeout: Duration::from_millis(250),
+            completion_timeout: Duration::from_millis(150),
             preview_completion_insert: true,
             completion_trigger_len: 2,
             auto_info: true,
@@ -1216,7 +1217,7 @@ impl Default for Config {
             indent_guides: IndentGuidesConfig::default(),
             color_modes: false,
             soft_wrap: SoftWrap {
-                enable: Some(false),
+                enable: Some(true),
                 ..SoftWrap::default()
             },
             text_width: 80,
@@ -1236,7 +1237,7 @@ impl Default for Config {
             end_of_line_diagnostics: DiagnosticFilter::Enable(Severity::Hint),
             clipboard_provider: ClipboardProvider::default(),
             editor_config: true,
-            rainbow_brackets: false,
+            rainbow_brackets: true,
             kitty_keyboard_protocol: Default::default(),
             buffer_picker: BufferPickerConfig::default(),
             workspace_trust: WorkspaceTrustConfig::default(),
