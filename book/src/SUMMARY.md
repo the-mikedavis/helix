@@ -16,3 +16,7 @@
   - [Adding languages](./guides/adding_languages.md)
   - [Adding textobject queries](./guides/textobject.md)
   - [Adding indent queries](./guides/indent.md)
+  - [Adding Rainbow Bracket Queries](./guides/rainbow_bracket_queries.md)
+  - [Adding Languages](./guides/adding_languages.md)
+  - [Adding Textobject Queries](./guides/textobject.md)
+  - [Adding Indent Queries](./guides/indent.md)
