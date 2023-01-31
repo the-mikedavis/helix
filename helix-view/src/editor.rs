@@ -735,7 +735,7 @@ impl Default for Config {
             auto_completion: true,
             auto_format: true,
             auto_save: false,
-            idle_timeout: Duration::from_millis(400),
+            idle_timeout: Duration::from_millis(250),
             completion_trigger_len: 2,
             auto_info: true,
             file_picker: FilePickerConfig::default(),
@@ -755,7 +755,7 @@ impl Default for Config {
             text_width: 80,
             completion_replace: false,
             workspace_lsp_roots: Vec::new(),
-            rainbow_brackets: false,
+            rainbow_brackets: true,
         }
     }
 }

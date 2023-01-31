@@ -1473,7 +1473,7 @@ impl Document {
         let enable_soft_wrap = language_soft_wrap
             .and_then(|soft_wrap| soft_wrap.enable)
             .or(editor_soft_wrap.enable)
-            .unwrap_or(false);
+            .unwrap_or(true);
         let max_wrap = language_soft_wrap
             .and_then(|soft_wrap| soft_wrap.max_wrap)
             .or(config.soft_wrap.max_wrap)
