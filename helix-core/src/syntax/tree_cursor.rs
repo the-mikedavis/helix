@@ -100,7 +100,48 @@ impl<'a> LayerTreeCursor<'a> {
         }
     }
 
-    pub fn goto_byte_range(&mut self, start: usize, end: usize) -> bool {
-        todo!()
+    /// Moves the cursor so that the current node is the largest node in the tree
+    /// which is contained in the given range.
+    pub fn goto_byte_range(&mut self, start: usize, end: usize) {
+        // Reset the cursor to the root of the root layer.
+        self.current = self.root;
+        let root = self.layers[self.current].root;
+        self.layers[self.current].cursor.reset(root);
+
+        loop {
+            let range = self.layers[self.current].cursor.node().byte_range();
+
+            // If the node's range is contained, we're done.
+            if range.start >= start && range.end <= end {
+                break;
+            }
+
+            // Otherwise, if the node's range ends before the given start, move to the
+            // next sibling.
+            if range.end <= start {
+                if self.goto_next_sibling() {
+                    continue;
+                } else {
+                    // The given range is past the end of the current tree.
+                    // Should be unreachable?
+                    unreachable!("past tree boundaries");
+                    // break;
+                }
+            }
+
+            // Otherwise, if the current node's range contains the byte range, descend to
+            // the children.
+            if range.start <= start && range.end >= end {
+                if self.goto_first_child() {
+                    continue;
+                } else {
+                    // If there aren't any children then the given range must
+                    // be smaller than any containing nodes.
+                    break;
+                }
+            }
+
+            unreachable!("unexpected");
+        }
     }
 }
