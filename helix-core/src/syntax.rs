@@ -1,3 +1,5 @@
+pub mod tree_cursor;
+
 use crate::{
     auto_pairs::AutoPairs,
     chars::char_is_line_ending,
