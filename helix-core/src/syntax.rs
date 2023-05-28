@@ -5,6 +5,7 @@ use crate::{
     chars::char_is_line_ending,
     diagnostic::Severity,
     regex::Regex,
+    syntax::tree_cursor::InjectionLayer,
     transaction::{ChangeSet, Operation},
     Rope, RopeSlice, Tendril,
 };
@@ -929,6 +930,7 @@ impl Syntax {
                 start_point: Point::new(0, 0),
                 end_point: Point::new(usize::MAX, usize::MAX),
             }],
+            parent: None,
         };
 
         // track scope_descriptor: a Vec of scopes for item in tree
@@ -1198,6 +1200,7 @@ impl Syntax {
                         depth,
                         ranges,
                         flags: LayerUpdateFlags::empty(),
+                        parent: Some(layer_id),
                     };
 
                     // Find an identical existing layer
@@ -1232,6 +1235,51 @@ impl Syntax {
 
     pub fn tree(&self) -> &Tree {
         self.layers[self.root].tree()
+    }
+
+    pub fn walk<'a>(&'a self) -> TreeCursor<'a> {
+        let mut tree = HopSlotMap::with_capacity(self.layers.len());
+        let mut layer_ids_to_tree_node_ids = HashMap::new();
+
+        let root_layer = &self.layers[self.root];
+        let root_root_node = root_layer.tree().root_node();
+        let root_tree_node_id = tree.insert(InjectionLayer::new(root_root_node, None));
+        layer_ids_to_tree_node_ids.insert(self.root, root_tree_node_id);
+
+        // Insert the remaining layers sorted by depth ascending.
+        let mut layers: Vec<_> = self
+            .layers
+            .iter()
+            .filter(|(layer_id, _layer)| *layer_id != self.root)
+            .collect();
+        layers.sort_by_key(|(_layer_id, layer)| layer.depth);
+
+        for (layer_id, layer) in layers {
+            // All non-root layers have parents.
+            let layer_parent = layer.parent.unwrap();
+            // The parent must always exist because layers are inserted in ascending
+            // depth order.
+            let parent_id = *layer_ids_to_tree_node_ids.get(&layer_parent).unwrap();
+
+            // Insert a new node in the tree for this layer.
+            let layer_root = layer.tree().root_node();
+            let tree_node_id = tree.insert(InjectionLayer::new(
+                layer_root,
+                Some((parent_id, todo!("need parent's injection node(s)"))),
+            ));
+
+            // Update the parent's set of children to include this layer.
+            let parent = &mut tree[parent_id];
+            parent.children.insert(layer_root.id(), tree_node_id);
+
+            layer_ids_to_tree_node_ids.insert(layer_id, tree_node_id);
+        }
+
+        TreeCursor {
+            layers: tree,
+            root: root_tree_node_id,
+            current: root_tree_node_id,
+        }
     }
 
     /// Iterate over the highlighted regions for a given slice of source code.
@@ -1337,6 +1385,7 @@ pub struct LanguageLayer {
     pub ranges: Vec<Range>,
     pub depth: u32,
     flags: LayerUpdateFlags,
+    parent: Option<LayerId>,
 }
 
 /// This PartialEq implementation only checks if that
@@ -1512,8 +1561,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{iter, mem, ops, str, usize};
 use tree_sitter::{
     Language as Grammar, Node, Parser, Point, Query, QueryCaptures, QueryCursor, QueryError,
-    QueryMatch, Range, TextProvider, Tree, TreeCursor,
+    QueryMatch, Range, TextProvider, Tree,
 };
+
+use self::tree_cursor::TreeCursor;
 
 const CANCELLATION_CHECK_INTERVAL: usize = 100;
 

@@ -1,39 +1,41 @@
 use std::collections::HashMap;
 
-use once_cell::sync::Lazy;
 use tree_sitter::{Node, TreeCursor as TSTreeCursor};
 
 use slotmap::{DefaultKey as LayerId, HopSlotMap};
 
-use crate::Syntax;
-
 type NodeId = usize;
 
-struct InjectionLayer<'a> {
-    root: Node<'a>,
-    cursor: Lazy<TSTreeCursor<'a>>,
-    children: HashMap<NodeId, LayerId>,
-    parent: (LayerId, Node<'a>),
+pub struct InjectionLayer<'a> {
+    pub root: Node<'a>,
+    pub cursor: TSTreeCursor<'a>,
+    pub children: HashMap<NodeId, LayerId>,
+    pub parent: Option<(LayerId, Node<'a>)>,
+}
+
+impl<'a> InjectionLayer<'a> {
+    pub fn new(root: Node<'a>, parent: Option<(LayerId, Node<'a>)>) -> Self {
+        Self {
+            root,
+            cursor: root.walk(),
+            children: HashMap::new(),
+            parent,
+        }
+    }
 }
 
 /// A stateful object for walking over nodes across injection layers efficiently.
 ///
 /// This type is similar to [`tree_sitter::TreeCursor`] but it works across
 /// injection layers.
-pub struct LayerTreeCursor<'a> {
-    layers: HopSlotMap<LayerId, InjectionLayer<'a>>,
-    root: LayerId,
-    current: LayerId,
-}
-
-impl<'a> From<Syntax> for LayerTreeCursor<'a> {
-    fn from(value: Syntax) -> Self {
-        todo!()
-    }
+pub struct TreeCursor<'a> {
+    pub layers: HopSlotMap<LayerId, InjectionLayer<'a>>,
+    pub root: LayerId,
+    pub current: LayerId,
 }
 
 // you reside on the parent layer's injection node, not the injection layer's node.
-impl<'a> LayerTreeCursor<'a> {
+impl<'a> TreeCursor<'a> {
     pub fn node(&self) -> Node<'a> {
         self.layers[self.current].cursor.node()
     }
@@ -88,15 +90,16 @@ impl<'a> LayerTreeCursor<'a> {
             // If the cursor cannot ascend and the current layer is the root
             // layer, we are at the root node and cannot ascend.
             false
-        } else {
+        } else if let Some((parent_layer, parent_node)) = self.layers[self.current].parent {
             // Transition up one layer and reset the cursor to the node in
             // that layer which injected the prior layer. Then ascend in that
             // subtree.
-            let (parent_layer, parent_node) = self.layers[self.current].parent;
             self.current = parent_layer;
             let cursor = &mut self.layers[self.current].cursor;
             cursor.reset(parent_node);
             self.goto_parent()
+        } else {
+            false
         }
     }
 
