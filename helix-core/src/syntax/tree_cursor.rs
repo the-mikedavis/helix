@@ -95,8 +95,7 @@ impl<'a> TreeCursor<'a> {
             // that layer which injected the prior layer. Then ascend in that
             // subtree.
             self.current = parent_layer;
-            let cursor = &mut self.layers[self.current].cursor;
-            cursor.reset(parent_node);
+            self.layers[self.current].cursor.reset(parent_node);
             self.goto_parent()
         } else {
             false
