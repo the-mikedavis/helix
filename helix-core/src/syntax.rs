@@ -903,8 +903,8 @@ thread_local! {
 }
 
 #[derive(Debug)]
-pub struct Syntax {
-    layers: HopSlotMap<LayerId, LanguageLayer>,
+pub struct Syntax<'a> {
+    layers: HopSlotMap<LayerId, LanguageLayer<'a>>,
     root: LayerId,
     loader: Arc<Loader>,
 }
@@ -913,9 +913,9 @@ fn byte_range_to_str(range: std::ops::Range<usize>, source: RopeSlice) -> Cow<st
     Cow::from(source.byte_slice(range))
 }
 
-impl Syntax {
+impl<'a> Syntax<'a> {
     pub fn new(
-        source: &Rope,
+        source: &'a Rope,
         config: Arc<HighlightConfiguration>,
         loader: Arc<Loader>,
     ) -> Option<Self> {
@@ -956,7 +956,7 @@ impl Syntax {
     pub fn update(
         &mut self,
         old_source: &Rope,
-        source: &Rope,
+        source: &'a Rope,
         changeset: &ChangeSet,
     ) -> Result<(), Error> {
         let mut queue = VecDeque::new();
@@ -1143,7 +1143,7 @@ impl Syntax {
                                 intersect_ranges(&layer.ranges, &[content_node], included_children);
 
                             if !ranges.is_empty() {
-                                injections.push((config, ranges));
+                                injections.push((config, ranges, content_node));
                             }
                         }
                     }
@@ -1184,7 +1184,8 @@ impl Syntax {
                                     included_children,
                                 );
                                 if !ranges.is_empty() {
-                                    injections.push((config, ranges));
+                                    let parent_node = lowest_common_ancestor(&content_nodes);
+                                    injections.push((config, ranges, parent_node));
                                 }
                             }
                         }
@@ -1193,14 +1194,14 @@ impl Syntax {
 
                 let depth = layer.depth + 1;
                 // TODO: can't inline this since matches borrows self.layers
-                for (config, ranges) in injections {
+                for (config, ranges, parent_node) in injections {
                     let new_layer = LanguageLayer {
                         tree: None,
                         config,
                         depth,
                         ranges,
                         flags: LayerUpdateFlags::empty(),
-                        parent: Some(layer_id),
+                        parent: Some((layer_id, parent_node)),
                     };
 
                     // Find an identical existing layer
@@ -1237,7 +1238,7 @@ impl Syntax {
         self.layers[self.root].tree()
     }
 
-    pub fn walk<'a>(&'a self) -> TreeCursor<'a> {
+    pub fn walk(&'a self) -> TreeCursor<'a> {
         let mut tree = HopSlotMap::with_capacity(self.layers.len());
         let mut layer_ids_to_tree_node_ids = HashMap::new();
 
@@ -1256,7 +1257,7 @@ impl Syntax {
 
         for (layer_id, layer) in layers {
             // All non-root layers have parents.
-            let layer_parent = layer.parent.unwrap();
+            let (layer_parent, parent_node) = layer.parent.unwrap();
             // The parent must always exist because layers are inserted in ascending
             // depth order.
             let parent_id = *layer_ids_to_tree_node_ids.get(&layer_parent).unwrap();
@@ -1265,7 +1266,7 @@ impl Syntax {
             let layer_root = layer.tree().root_node();
             let tree_node_id = tree.insert(InjectionLayer::new(
                 layer_root,
-                Some((parent_id, todo!("need parent's injection node(s)"))),
+                Some((parent_id, parent_node)),
             ));
 
             // Update the parent's set of children to include this layer.
@@ -1283,7 +1284,7 @@ impl Syntax {
     }
 
     /// Iterate over the highlighted regions for a given slice of source code.
-    pub fn highlight_iter<'a>(
+    pub fn highlight_iter(
         &'a self,
         source: RopeSlice<'a>,
         range: Option<std::ops::Range<usize>>,
@@ -1377,7 +1378,7 @@ bitflags! {
 }
 
 #[derive(Debug)]
-pub struct LanguageLayer {
+pub struct LanguageLayer<'a> {
     // mode
     // grammar
     pub config: Arc<HighlightConfiguration>,
@@ -1385,14 +1386,14 @@ pub struct LanguageLayer {
     pub ranges: Vec<Range>,
     pub depth: u32,
     flags: LayerUpdateFlags,
-    parent: Option<LayerId>,
+    parent: Option<(LayerId, Node<'a>)>,
 }
 
 /// This PartialEq implementation only checks if that
 /// two layers are theoretically identical (meaning they highlight the same text range with the same language).
 /// It does not check whether the layers have the same internal treesitter
 /// state.
-impl PartialEq for LanguageLayer {
+impl<'a> PartialEq for LanguageLayer<'a> {
     fn eq(&self, other: &Self) -> bool {
         self.depth == other.depth
             && self.config.language == other.config.language
@@ -1402,7 +1403,7 @@ impl PartialEq for LanguageLayer {
 
 /// Hash implementation belongs to PartialEq implementation above.
 /// See its documentation for details.
-impl Hash for LanguageLayer {
+impl<'a> Hash for LanguageLayer<'a> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.depth.hash(state);
         // The transmute is necessary here because tree_sitter::Language does not derive Hash at the moment.
@@ -1416,7 +1417,7 @@ impl Hash for LanguageLayer {
     }
 }
 
-impl LanguageLayer {
+impl<'a> LanguageLayer<'a> {
     pub fn tree(&self) -> &Tree {
         // TODO: no unwrap
         self.tree.as_ref().unwrap()
@@ -2489,16 +2490,8 @@ fn node_is_visible(node: &Node) -> bool {
     node.is_missing() || (node.is_named() && node.language().node_kind_is_visible(node.kind_id()))
 }
 
-pub fn pretty_print_tree<W: fmt::Write>(fmt: &mut W, node: Node) -> fmt::Result {
-    if node.child_count() == 0 {
-        if node_is_visible(&node) {
-            write!(fmt, "({})", node.kind())
-        } else {
-            write!(fmt, "\"{}\"", node.kind())
-        }
-    } else {
-        pretty_print_tree_impl(fmt, &mut node.walk(), 0)
-    }
+pub fn pretty_print_tree<W: fmt::Write>(fmt: &mut W, cursor: &mut TreeCursor) -> fmt::Result {
+    pretty_print_tree_impl(fmt, cursor, 0)
 }
 
 fn pretty_print_tree_impl<W: fmt::Write>(
@@ -2545,6 +2538,58 @@ fn pretty_print_tree_impl<W: fmt::Write>(
     }
 
     Ok(())
+}
+
+/// Finds the node lowest in the syntax tree which is an ancestor of all given nodes.
+///
+/// `nodes` must not be empty.
+///
+/// Runs with `O(N h)` time complexity where `N` is the number of nodes given and `h`
+/// is the height of the tree.
+fn lowest_common_ancestor<'a>(nodes: &[Node<'a>]) -> Node<'a> {
+    assert!(!nodes.is_empty());
+
+    let mut lineages = Vec::with_capacity(nodes.len());
+
+    for &(mut node) in nodes {
+        // Each node's `lineage` is a Vec where the first element is the
+        // node itself and the last is the syntax tree's root. (These might
+        // be the same node.) Each element in between is the parent of the
+        // prior node.
+        let mut lineage = Vec::new();
+        lineage.push(node);
+        while let Some(parent) = node.parent() {
+            lineage.push(node);
+            node = parent;
+        }
+
+        lineages.push(lineage);
+    }
+
+    let mut first_lineage = lineages.pop().unwrap();
+    // Start at the root of the syntax tree.
+    let mut common_ancestor = first_lineage
+        .pop()
+        .expect("each lineage always contains the root");
+    let mut next_descendant = common_ancestor;
+
+    loop {
+        // Find the first descendant which is not shared by all nodes. The ancestor
+        // of that descendant is the lowest common ancestor.
+        for lineage in lineages.iter_mut() {
+            if lineage.pop() == Some(next_descendant) {
+                continue;
+            } else {
+                return common_ancestor;
+            }
+        }
+
+        common_ancestor = next_descendant;
+        next_descendant = match first_lineage.pop() {
+            Some(next_descendant) => next_descendant,
+            None => return common_ancestor,
+        };
+    }
 }
 
 #[cfg(test)]
