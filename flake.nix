@@ -182,6 +182,7 @@
           export RUST_BACKTRACE="1"
           export RUSTFLAGS="${rustFlagsEnv}"
         '';
+        XDG_DATA_DIRS = with pkgs; lib.makeSearchPath "share" [hunspellDicts.en_US];
       };
     })
     // {
