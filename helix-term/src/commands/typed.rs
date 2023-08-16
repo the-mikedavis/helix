@@ -2297,6 +2297,23 @@ fn clear_register(
     Ok(())
 }
 
+fn spell(
+    _cx: &mut compositor::Context,
+    args: &[Cow<str>],
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+
+    // TODO: allow optionally specifying the ISO language code
+    // and fall back to an editor config option `spell-language`.
+    // For now, hardcode to en.
+    ensure!(args.is_empty(), ":spell takes no arguments");
+
+    Ok(())
+}
+
 pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "quit",
@@ -2883,6 +2900,13 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         aliases: &[],
         doc: "Clear given register. If no argument is provided, clear all registers.",
         fun: clear_register,
+        signature: CommandSignature::none(),
+    },
+    TypableCommand {
+        name: "spell-check",
+        aliases: &["spell"],
+        doc: "Check the spelling in the current buffer.",
+        fun: spell,
         signature: CommandSignature::none(),
     },
 ];
