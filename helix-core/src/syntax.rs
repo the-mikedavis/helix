@@ -640,6 +640,7 @@ impl LanguageConfiguration {
                 })
                 .ok()?;
             let config = HighlightConfiguration::new(
+                &self.language_id,
                 language,
                 &highlights_query,
                 &injections_query,
@@ -689,21 +690,7 @@ impl LanguageConfiguration {
     }
 
     fn load_query(&self, kind: &str) -> Option<Query> {
-        let query_text = read_query(&self.language_id, kind);
-        if query_text.is_empty() {
-            return None;
-        }
-        let lang = self.highlight_config.get()?.as_ref()?.language;
-        Query::new(lang, &query_text)
-            .map_err(|e| {
-                log::error!(
-                    "Failed to parse {} queries for {}: {}",
-                    kind,
-                    self.language_id,
-                    e
-                )
-            })
-            .ok()
+        self.highlight_config.get()?.as_ref()?.load_query(kind)
     }
 }
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -1252,19 +1239,20 @@ impl Syntax {
     }
 
     /// Iterate over all captures for a query across injection layers.
-    fn query_iter<'a, F>(
+    pub fn query_iter<'a, F>(
         &'a self,
         query_fn: F,
         source: RopeSlice<'a>,
         range: Option<std::ops::Range<usize>>,
     ) -> impl Iterator<Item = (&'a LanguageLayer, QueryMatch<'a, 'a>, usize)>
     where
-        F: Fn(&'a HighlightConfiguration) -> &'a Query,
+        F: Fn(&'a HighlightConfiguration) -> Option<&'a Query>,
     {
         let layers = self
             .layers
             .iter()
             .filter_map(|(_, layer)| {
+                let query = query_fn(&layer.config)?;
                 // Reuse a cursor from the pool if available.
                 let mut cursor = PARSER.with(|ts_parser| {
                     let highlighter = &mut ts_parser.borrow_mut();
@@ -1281,11 +1269,7 @@ impl Syntax {
                 cursor_ref.set_match_limit(TREE_SITTER_MATCH_LIMIT);
 
                 let mut captures = cursor_ref
-                    .captures(
-                        query_fn(&layer.config),
-                        layer.tree().root_node(),
-                        RopeProvider(source),
-                    )
+                    .captures(query, layer.tree().root_node(), RopeProvider(source))
                     .peekable();
 
                 // If there aren't any captures for this layer, skip the layer.
@@ -1609,8 +1593,10 @@ pub enum HighlightEvent {
 /// Contains the data needed to highlight code written in a particular language.
 ///
 /// This struct is immutable and can be shared between threads.
+// TODO: rename as QueryConfiguration
 #[derive(Debug)]
 pub struct HighlightConfiguration {
+    pub language_id: String,
     pub language: Grammar,
     pub query: Query,
     injections_query: Query,
@@ -1626,6 +1612,7 @@ pub struct HighlightConfiguration {
     local_def_capture_index: Option<u32>,
     local_def_value_capture_index: Option<u32>,
     local_ref_capture_index: Option<u32>,
+    spell_query: OnceCell<Option<Query>>,
 }
 
 #[derive(Debug)]
@@ -1698,6 +1685,8 @@ impl HighlightConfiguration {
     ///
     /// # Parameters
     ///
+    /// * `language_id` - The name of the language. Corresponds to `LanguageConfiguration`'s
+    ///   `language_id` field.
     /// * `language`  - The Tree-sitter `Grammar` that should be used for parsing.
     /// * `highlights_query` - A string containing tree patterns for syntax highlighting. This
     ///   should be non-empty, otherwise no syntax highlights will be added.
@@ -1708,6 +1697,7 @@ impl HighlightConfiguration {
     ///
     /// Returns a `HighlightConfiguration` that can then be used with the `highlight` method.
     pub fn new(
+        language_id: &str,
         language: Grammar,
         highlights_query: &str,
         injection_query: &str,
@@ -1784,6 +1774,7 @@ impl HighlightConfiguration {
 
         let highlight_indices = ArcSwap::from_pointee(vec![None; query.capture_names().len()]);
         Ok(Self {
+            language_id: language_id.to_string(),
             language,
             query,
             injections_query,
@@ -1799,6 +1790,7 @@ impl HighlightConfiguration {
             local_def_capture_index,
             local_def_value_capture_index,
             local_ref_capture_index,
+            spell_query: Default::default(),
         })
     }
 
@@ -1936,6 +1928,29 @@ impl HighlightConfiguration {
         }
 
         (injection_capture, content_node, included_children)
+    }
+
+    fn load_query(&self, kind: &str) -> Option<Query> {
+        let query_text = read_query(&self.language_id, kind);
+        if query_text.is_empty() {
+            return None;
+        }
+        Query::new(self.language, &query_text)
+            .map_err(|e| {
+                log::error!(
+                    "Failed to parse {} queries for {}: {}",
+                    kind,
+                    self.language_id,
+                    e
+                )
+            })
+            .ok()
+    }
+
+    pub fn spell_query(&self) -> Option<&Query> {
+        self.spell_query
+            .get_or_init(|| self.load_query("spell.scm"))
+            .as_ref()
     }
 }
 
@@ -2651,13 +2666,14 @@ mod test {
             language: vec![],
             language_server: HashMap::new(),
         });
-        let language = get_language("rust").unwrap();
+        let language_id = "rust";
+        let language = get_language(language_id).unwrap();
 
         let query = Query::new(language, query_str).unwrap();
         let textobject = TextObjectQuery { query };
         let mut cursor = QueryCursor::new();
 
-        let config = HighlightConfiguration::new(language, "", "", "").unwrap();
+        let config = HighlightConfiguration::new(language_id, language, "", "", "").unwrap();
         let syntax = Syntax::new(source.slice(..), Arc::new(config), Arc::new(loader)).unwrap();
 
         let root = syntax.tree().root_node();
@@ -2714,8 +2730,10 @@ mod test {
             language_server: HashMap::new(),
         });
 
-        let language = get_language("rust").unwrap();
+        let language_id = "rust";
+        let language = get_language(language_id).unwrap();
         let config = HighlightConfiguration::new(
+            language_id,
             language,
             &std::fs::read_to_string("../runtime/grammars/sources/rust/queries/highlights.scm")
                 .unwrap(),
@@ -2821,7 +2839,7 @@ mod test {
         });
         let language = get_language(language_name).unwrap();
 
-        let config = HighlightConfiguration::new(language, "", "", "").unwrap();
+        let config = HighlightConfiguration::new(language_name, language, "", "", "").unwrap();
         let syntax = Syntax::new(source.slice(..), Arc::new(config), Arc::new(loader)).unwrap();
 
         let root = syntax
