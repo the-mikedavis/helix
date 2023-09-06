@@ -11,6 +11,7 @@ use crate::{
     Align, Document, DocumentId, View, ViewId,
 };
 use dap::StackFrame;
+use helix_loader::dictionary::Dictionary;
 use helix_vcs::DiffProviderRegistry;
 
 use futures_util::stream::select_all::SelectAll;
@@ -950,6 +951,9 @@ pub struct Editor {
     /// field is set and any old requests are automatically
     /// canceled as a result
     pub completion_request_handle: Option<oneshot::Sender<()>>,
+
+    /// Loaded dictionaries keyed by locale.
+    dictionaries: HashMap<String, Dictionary>,
 }
 
 pub type Motion = Box<dyn Fn(&mut Editor)>;
@@ -1063,6 +1067,7 @@ impl Editor {
             needs_redraw: false,
             cursor_cache: Cell::new(None),
             completion_request_handle: None,
+            dictionaries: Default::default(),
         }
     }
 
@@ -1819,6 +1824,33 @@ impl Editor {
         self.debugger
             .as_ref()
             .and_then(|debugger| debugger.current_stack_frame())
+    }
+
+    /// Idempotently ensures that the dictionary for the given locale is
+    /// loaded and compiled, if available.
+    ///
+    /// Reading and compiling a dictionary can take some time, so this function
+    /// should not be executed in the main loop.
+    pub fn get_dictionary(&mut self, locale: &str) -> anyhow::Result<&Dictionary> {
+        if !self.dictionaries.contains_key(locale) {
+            let dict = helix_loader::dictionary::load_dictionary(locale)?;
+            self.dictionaries.insert(locale.to_string(), dict);
+        }
+
+        Ok(&self.dictionaries[locale])
+    }
+
+    pub fn check_spelling(&mut self, doc_id: &DocumentId, locale: &str) -> anyhow::Result<()> {
+        if !self.dictionaries.contains_key(locale) {
+            let dict = helix_loader::dictionary::load_dictionary(locale)?;
+            self.dictionaries.insert(locale.to_string(), dict);
+        }
+
+        let dict = &self.dictionaries[locale];
+        let Some(doc) = self.documents.get_mut(doc_id) else { return Ok(()) };
+
+        doc.check_spelling(dict);
+        Ok(())
     }
 }
 

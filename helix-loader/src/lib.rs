@@ -1,4 +1,5 @@
 pub mod config;
+pub mod dictionary;
 pub mod grammar;
 
 use etcetera::base_strategy::{choose_base_strategy, BaseStrategy};

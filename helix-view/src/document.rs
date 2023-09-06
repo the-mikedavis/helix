@@ -8,6 +8,7 @@ use helix_core::doc_formatter::TextFormat;
 use helix_core::encoding::Encoding;
 use helix_core::syntax::{Highlight, LanguageServerFeature};
 use helix_core::text_annotations::{InlineAnnotation, TextAnnotations};
+use helix_loader::dictionary::Dictionary;
 use helix_vcs::{DiffHandle, DiffProviderRegistry};
 
 use ::parking_lot::Mutex;
@@ -139,6 +140,8 @@ pub struct Document {
     /// Set to `true` when the document is updated, reset to `false` on the next inlay hints
     /// update from the LSP
     pub inlay_hints_oudated: bool,
+
+    pub typos: Vec<std::ops::Range<usize>>,
 
     path: Option<PathBuf>,
     encoding: &'static encoding::Encoding,
@@ -676,6 +679,7 @@ impl Document {
             version_control_head: None,
             focused_at: std::time::Instant::now(),
             readonly: false,
+            typos: Default::default(),
         }
     }
 
@@ -1235,6 +1239,18 @@ impl Document {
 
             self.diagnostics
                 .sort_unstable_by_key(|diagnostic| diagnostic.range);
+
+            // Update typo positions
+            changes.update_positions(
+                self.typos
+                    .iter_mut()
+                    .map(|range| (&mut range.start, Assoc::Before)),
+            );
+            changes.update_positions(
+                self.typos
+                    .iter_mut()
+                    .map(|range| (&mut range.end, Assoc::After)),
+            );
 
             // Update the inlay hint annotations' positions, helping ensure they are displayed in the proper place
             let apply_inlay_hint_changes = |annotations: &mut Rc<[InlineAnnotation]>| {
@@ -1829,6 +1845,29 @@ impl Document {
     /// (since it often means inlay hints have been fully deactivated).
     pub fn reset_all_inlay_hints(&mut self) {
         self.inlay_hints = Default::default();
+    }
+
+    // TODO better name
+    pub fn check_spelling(&mut self, dictionary: &Dictionary) {
+        let Some(syntax) = self.syntax() else { return };
+        let source = self.text.slice(..);
+        let mut typos: Vec<std::ops::Range<usize>> = Vec::new();
+        for (_layer, match_, capture_index) in
+            syntax.query_iter(|config| config.spell_query(), source, None)
+        {
+            let node = match_.captures[capture_index].node;
+            let range = node.byte_range();
+            // TODO: trim punctuation
+            let text: Cow<str> = source.byte_slice(range).into();
+            if !dictionary.check(&text) {
+                typos.push(
+                    source.byte_to_char(node.start_byte())..source.byte_to_char(node.end_byte()),
+                );
+            }
+        }
+        self.typos = typos;
+        log::debug!("Finished spell checking with {} typos", self.typos.len());
+        // TODO: notify redraw handle.
     }
 }
 

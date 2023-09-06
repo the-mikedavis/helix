@@ -132,6 +132,17 @@ impl EditorView {
         if !overlay_highlights.is_empty() {
             highlights = Box::new(syntax::merge(highlights, overlay_highlights));
         }
+        if !doc.typos.is_empty() {
+            let scope = theme
+                .find_scope_index_exact("diagnostic.error")
+                .expect("TODO remove this");
+            let typo_highlights = doc
+                .typos
+                .iter()
+                .map(|range| (scope, range.clone()))
+                .collect();
+            highlights = Box::new(syntax::merge(highlights, typo_highlights));
+        }
 
         for diagnostic in Self::doc_diagnostics_highlights(doc, theme) {
             // Most of the `diagnostic` Vecs are empty most of the time. Skipping

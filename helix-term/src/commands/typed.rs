@@ -2298,7 +2298,7 @@ fn clear_register(
 }
 
 fn spell(
-    _cx: &mut compositor::Context,
+    cx: &mut compositor::Context,
     args: &[Cow<str>],
     event: PromptEvent,
 ) -> anyhow::Result<()> {
@@ -2306,10 +2306,26 @@ fn spell(
         return Ok(());
     }
 
-    // TODO: allow optionally specifying the ISO language code
-    // and fall back to an editor config option `spell-language`.
-    // For now, hardcode to en.
-    ensure!(args.is_empty(), ":spell takes no arguments");
+    ensure!(args.len() <= 1, "Bag arguments. Usage: `:spell [locale]`");
+    // TODO: editor option for default locale?
+    let locale = args
+        .first()
+        .map(AsRef::as_ref)
+        .unwrap_or("en_US")
+        .to_string();
+
+    let doc_id = doc!(cx.editor).id();
+    let callback = async move {
+        let call: job::Callback = job::Callback::EditorCompositor(Box::new(
+            move |editor: &mut Editor, _: &mut Compositor| {
+                if let Err(err) = editor.check_spelling(&doc_id, &locale) {
+                    editor.set_error(err.to_string());
+                }
+            },
+        ));
+        Ok(call)
+    };
+    cx.jobs.callback(callback);
 
     Ok(())
 }

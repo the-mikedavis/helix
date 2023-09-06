@@ -1268,6 +1268,7 @@ dependencies = [
  "log",
  "once_cell",
  "serde",
+ "spellbook",
  "tempfile",
  "threadpool",
  "toml",
@@ -2115,6 +2116,10 @@ dependencies = [
  "libc",
  "windows-sys 0.48.0",
 ]
+
+[[package]]
+name = "spellbook"
+version = "0.1.0"
 
 [[package]]
 name = "static_assertions"
