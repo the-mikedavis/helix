@@ -107,7 +107,8 @@
 | `buffer_picker` | Open buffer picker | normal: `` <space>b ``, select: `` <space>b `` |
 | `jumplist_picker` | Open jumplist picker | normal: `` <space>j ``, select: `` <space>j `` |
 | `symbol_picker` | Open symbol picker | normal: `` <space>s ``, select: `` <space>s `` |
-| `changed_file_picker` | Open changed file picker | normal: `` <space>g ``, select: `` <space>g `` |
+| `changed_file_picker` | Open changed file picker | normal: `` <space>G ``, select: `` <space>G `` |
+| `document_change_picker` | Open a picker of VCS changes in the current document | normal: `` <space>g ``, select: `` <space>g `` |
 | `select_references_to_symbol_under_cursor` | Select symbol references | normal: `` <space>h ``, select: `` <space>h `` |
 | `workspace_symbol_picker` | Open workspace symbol picker | normal: `` <space>S ``, select: `` <space>S `` |
 | `diagnostics_picker` | Open diagnostic picker | normal: `` <space>d ``, select: `` <space>d `` |

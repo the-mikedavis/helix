@@ -407,6 +407,7 @@ impl MappableCommand {
         jumplist_picker, "Open jumplist picker",
         symbol_picker, "Open symbol picker",
         changed_file_picker, "Open changed file picker",
+        document_change_picker, "Open a picker of VCS changes in the current document",
         select_references_to_symbol_under_cursor, "Select symbol references",
         workspace_symbol_picker, "Open workspace symbol picker",
         diagnostics_picker, "Open diagnostic picker",
@@ -3460,6 +3461,77 @@ pub fn command_palette(cx: &mut Context) {
     ));
 }
 
+fn document_change_picker(cx: &mut Context) {
+    struct Data {
+        location: String,
+        style_added: Style,
+        style_modified: Style,
+        style_removed: Style,
+    }
+
+    let doc = doc!(cx.editor);
+    let Some(diff_handle) = doc.diff_handle() else {
+        cx.editor
+            .set_status("Diff is not available in current buffer");
+        return;
+    };
+    let doc_id = doc.id();
+    let diff = diff_handle.load();
+    let location = doc
+        .relative_path()
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_else(|| SCRATCH_BUFFER_NAME.to_string());
+
+    let data = Data {
+        location,
+        style_added: cx.editor.theme.get("diff.plus"),
+        style_modified: cx.editor.theme.get("diff.delta"),
+        style_removed: cx.editor.theme.get("diff.minus"),
+    };
+
+    let columns = vec![
+        PickerColumn::new("change", |hunk: &Hunk, data: &Data| {
+            if hunk.is_pure_insertion() {
+                Span::styled("+ added", data.style_added)
+            } else if hunk.is_pure_removal() {
+                Span::styled("- removed", data.style_removed)
+            } else {
+                Span::styled("~ modified", data.style_modified)
+            }
+            .into()
+        }),
+        PickerColumn::new("location", |hunk: &Hunk, data: &Data| {
+            format!("{}:{}", data.location, hunk.after.start).into()
+        }),
+    ];
+
+    let hunks = diff.hunks().cloned();
+
+    let picker = Picker::new(columns, 0, hunks, data, move |cx, hunk: &Hunk, action| {
+        cx.editor.switch(doc_id, action);
+        let config = cx.editor.config();
+        let (view, doc) = (view_mut!(cx.editor), doc_mut!(cx.editor, &doc_id));
+        let text = doc.text().slice(..);
+        let range = hunk_range(hunk, text);
+        doc.set_selection(view.id, range.into());
+        if action.align_view(view, doc.id()) {
+            view.ensure_cursor_in_view_center(doc, config.scrolloff)
+        }
+    })
+    .with_preview(move |_editor, hunk| {
+        let start_line = hunk.after.start as usize;
+        let end_line = if hunk.after.is_empty() {
+            start_line + 1
+        } else {
+            hunk.after.end as usize
+        };
+        Some((doc_id.into(), Some((start_line, end_line))))
+    });
+
+    drop(diff);
+    cx.push_layer(Box::new(overlaid(picker)));
+}
+
 fn last_picker(cx: &mut Context) {
     // TODO: last picker does not seem to work well with buffer_picker
     cx.callback.push(Box::new(|compositor, cx| {
@@ -3968,7 +4040,7 @@ fn goto_first_change_impl(cx: &mut Context, reverse: bool) {
             diff.nth_hunk(idx)
         };
         if hunk != Hunk::NONE {
-            let range = hunk_range(hunk, doc.text().slice(..));
+            let range = hunk_range(&hunk, doc.text().slice(..));
             doc.set_selection(view.id, Selection::single(range.anchor, range.head));
         }
     }
@@ -4010,7 +4082,7 @@ fn goto_next_change_impl(cx: &mut Context, direction: Direction) {
                 return range;
             };
             let hunk = diff.nth_hunk(hunk_idx);
-            let new_range = hunk_range(hunk, doc_text);
+            let new_range = hunk_range(&hunk, doc_text);
             if editor.mode == Mode::Select {
                 let head = if new_range.head < range.anchor {
                     new_range.anchor
@@ -4032,7 +4104,7 @@ fn goto_next_change_impl(cx: &mut Context, direction: Direction) {
 /// Returns the [Range] for a [Hunk] in the given text.
 /// Additions and modifications cover the added and modified ranges.
 /// Deletions are represented as the point at the start of the deletion hunk.
-fn hunk_range(hunk: Hunk, text: RopeSlice) -> Range {
+fn hunk_range(hunk: &Hunk, text: RopeSlice) -> Range {
     let anchor = text.line_to_char(hunk.after.start as usize);
     let head = if hunk.after.is_empty() {
         anchor + 1
