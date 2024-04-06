@@ -165,6 +165,7 @@ pub fn raw_regex_prompt(
                                                 )))
                                                 .auto_close(true);
                                             compositor.replace_or_push("invalid-regex", popup);
+                                            job::RequireRender::Render
                                         },
                                     ));
                                     Ok(call)
@@ -331,6 +332,7 @@ pub fn file_explorer(root: PathBuf, editor: &Editor) -> Result<FileExplorer, std
                             if let Ok(picker) = file_explorer(new_root, editor) {
                                 compositor.push(Box::new(overlay::overlaid(picker)));
                             }
+                            job::RequireRender::Render
                         }));
                     Ok(call)
                 });

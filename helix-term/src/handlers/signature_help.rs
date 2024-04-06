@@ -18,6 +18,7 @@ use crate::events::{OnModeSwitch, PostInsertChar};
 use crate::handlers::Handlers;
 use crate::ui::lsp::signature_help::{Signature, SignatureHelp};
 use crate::ui::Popup;
+use crate::RequireRender;
 use crate::{job, ui};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -95,7 +96,10 @@ impl helix_event::AsyncHook for SignatureHelpHandler {
         let invocation = self.trigger.take().unwrap();
         self.state = State::Pending;
         let handle = self.task_controller.restart();
-        job::dispatch_blocking(move |editor, _| request_signature_help(editor, invocation, handle))
+        job::dispatch_blocking(move |editor, _| {
+            request_signature_help(editor, invocation, handle);
+            RequireRender::Skip
+        })
     }
 }
 
@@ -167,14 +171,14 @@ pub fn show_signature_help(
     compositor: &mut Compositor,
     invoked: SignatureHelpInvoked,
     response: Option<lsp::SignatureHelp>,
-) {
+) -> RequireRender {
     let config = &editor.config();
 
     if !(config.lsp.auto_signature_help
         || SignatureHelp::visible_popup(compositor).is_some()
         || invoked == SignatureHelpInvoked::Manual)
     {
-        return;
+        return RequireRender::Skip;
     }
 
     // If the signature help invocation is automatic, don't show it outside of Insert Mode:
@@ -184,7 +188,7 @@ pub fn show_signature_help(
     // For the most part this should not be needed as the request gets canceled automatically now
     // but it's technically possible for the mode change to just preempt this callback so better safe than sorry
     if invoked == SignatureHelpInvoked::Automatic && editor.mode != Mode::Insert {
-        return;
+        return RequireRender::Skip;
     }
 
     let response = match response {
@@ -197,7 +201,7 @@ pub fn show_signature_help(
                 SignatureHelpEvent::RequestComplete { open: false },
             );
             compositor.remove(SignatureHelp::ID);
-            return;
+            return RequireRender::Render;
         }
     };
     send_blocking(
@@ -209,7 +213,7 @@ pub fn show_signature_help(
     let language = doc.language_name().unwrap_or("");
 
     if response.signatures.is_empty() {
-        return;
+        return RequireRender::Skip;
     }
 
     let signatures: Vec<Signature> = response
@@ -282,10 +286,11 @@ pub fn show_signature_help(
         .filter(|area| area.intersects(popup.area(size, editor)))
         .is_some()
     {
-        return;
+        return RequireRender::Skip;
     }
 
     compositor.replace_or_push(SignatureHelp::ID, popup);
+    RequireRender::Render
 }
 
 fn signature_help_post_insert_char_hook(

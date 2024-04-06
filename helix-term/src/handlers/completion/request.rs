@@ -151,7 +151,8 @@ impl helix_event::AsyncHook for CompletionHandler {
         self.in_flight = Some(trigger);
         let handle = self.task_controller.restart();
         dispatch_blocking(move |editor, compositor| {
-            request_completions(trigger, handle, editor, compositor)
+            request_completions(trigger, handle, editor, compositor);
+            crate::job::RequireRender::Skip
         });
     }
 }
