@@ -149,7 +149,7 @@ impl Prompt {
         editor: &'a Editor,
     ) -> Option<Cow<'a, str>> {
         self.history_register
-            .and_then(|reg| editor.registers.first(reg, editor))
+            .and_then(|reg| editor.registers.latest(reg, editor))
     }
 
     pub fn recalculate_completion(&mut self, editor: &Editor) {
@@ -344,7 +344,7 @@ impl Prompt {
     ) {
         (self.callback_fn)(cx, &self.line, PromptEvent::Abort);
         let mut values = match cx.editor.registers.read(register, cx.editor) {
-            Some(values) if values.len() > 0 => values.rev(),
+            Some(values) if values.len() > 0 => values,
             _ => return,
         };
 
@@ -703,7 +703,7 @@ impl Component for Prompt {
                         &context
                             .editor
                             .registers
-                            .first(c, context.editor)
+                            .latest(c, context.editor)
                             .unwrap_or_default(),
                         context.editor,
                     );
