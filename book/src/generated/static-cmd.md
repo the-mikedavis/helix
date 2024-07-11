@@ -251,8 +251,28 @@
 | `surround_add` | Surround add | normal: `` ms ``, select: `` ms `` |
 | `surround_replace` | Surround replace | normal: `` mr ``, select: `` mr `` |
 | `surround_delete` | Surround delete | normal: `` md ``, select: `` md `` |
-| `select_textobject_around` | Select around object | normal: `` ma ``, select: `` ma `` |
-| `select_textobject_inner` | Select inside object | normal: `` mi ``, select: `` mi `` |
+| `select_textobject_inside_type` | Select inside type definition (tree-sitter) | normal: `` mit ``, select: `` mit `` |
+| `select_textobject_around_type` | Select around type definition (tree-sitter) | normal: `` mat ``, select: `` mat `` |
+| `select_textobject_inside_function` | Select inside function (tree-sitter) | normal: `` mif ``, select: `` mif `` |
+| `select_textobject_around_function` | Select around function (tree-sitter) | normal: `` maf ``, select: `` maf `` |
+| `select_textobject_inside_parameter` | Select inside argument/parameter (tree-sitter) | normal: `` mia ``, select: `` mia `` |
+| `select_textobject_around_parameter` | Select around argument/parameter (tree-sitter) | normal: `` maa ``, select: `` maa `` |
+| `select_textobject_inside_comment` | Select inside comment (tree-sitter) | normal: `` mic ``, select: `` mic `` |
+| `select_textobject_around_comment` | Select around comment (tree-sitter) | normal: `` mac ``, select: `` mac `` |
+| `select_textobject_inside_test` | Select inside test (tree-sitter) | normal: `` miT ``, select: `` miT `` |
+| `select_textobject_around_test` | Select around test (tree-sitter) | normal: `` maT ``, select: `` maT `` |
+| `select_textobject_inside_entry` | Select inside data structure entry (tree-sitter) | normal: `` mie ``, select: `` mie `` |
+| `select_textobject_around_entry` | Select around data structure entry (tree-sitter) | normal: `` mae ``, select: `` mae `` |
+| `select_textobject_inside_paragraph` | Select inside paragraph | normal: `` mip ``, select: `` mip `` |
+| `select_textobject_around_paragraph` | Select around paragraph | normal: `` map ``, select: `` map `` |
+| `select_textobject_inside_closest_surrounding_pair` | Select inside closest surrounding pair (tree-sitter) | normal: `` mim ``, select: `` mim `` |
+| `select_textobject_around_closest_surrounding_pair` | Select around closest surrounding pair (tree-sitter) | normal: `` mam ``, select: `` mam `` |
+| `select_textobject_inside_word` | Select inside word | normal: `` miw ``, select: `` miw `` |
+| `select_textobject_around_word` | Select around word | normal: `` maw ``, select: `` maw `` |
+| `select_textobject_inside_WORD` | Select inside WORD | normal: `` miW ``, select: `` miW `` |
+| `select_textobject_around_WORD` | Select around WORD | normal: `` maW ``, select: `` maW `` |
+| `select_textobject_inside_change` | Select inside VCS change | normal: `` mig ``, select: `` mig `` |
+| `select_textobject_around_change` | Select around VCS change | normal: `` mag ``, select: `` mag `` |
 | `goto_next_function` | Goto next function | normal: `` ]f ``, select: `` ]f `` |
 | `goto_prev_function` | Goto previous function | normal: `` [f ``, select: `` [f `` |
 | `goto_next_class` | Goto next type definition | normal: `` ]t ``, select: `` ]t `` |
@@ -267,22 +287,22 @@
 | `goto_prev_entry` | Goto previous pairing | normal: `` [e ``, select: `` [e `` |
 | `goto_next_paragraph` | Goto next paragraph | normal: `` ]p ``, select: `` ]p `` |
 | `goto_prev_paragraph` | Goto previous paragraph | normal: `` [p ``, select: `` [p `` |
-| `dap_launch` | Launch debug target | normal: `` <space>Gl ``, select: `` <space>Gl `` |
-| `dap_restart` | Restart debugging session | normal: `` <space>Gr ``, select: `` <space>Gr `` |
-| `dap_toggle_breakpoint` | Toggle breakpoint | normal: `` <space>Gb ``, select: `` <space>Gb `` |
-| `dap_continue` | Continue program execution | normal: `` <space>Gc ``, select: `` <space>Gc `` |
-| `dap_pause` | Pause program execution | normal: `` <space>Gh ``, select: `` <space>Gh `` |
-| `dap_step_in` | Step in | normal: `` <space>Gi ``, select: `` <space>Gi `` |
-| `dap_step_out` | Step out | normal: `` <space>Go ``, select: `` <space>Go `` |
-| `dap_next` | Step to next | normal: `` <space>Gn ``, select: `` <space>Gn `` |
-| `dap_variables` | List variables | normal: `` <space>Gv ``, select: `` <space>Gv `` |
-| `dap_terminate` | End debug session | normal: `` <space>Gt ``, select: `` <space>Gt `` |
-| `dap_edit_condition` | Edit breakpoint condition on current line | normal: `` <space>G<C-c> ``, select: `` <space>G<C-c> `` |
-| `dap_edit_log` | Edit breakpoint log message on current line | normal: `` <space>G<C-l> ``, select: `` <space>G<C-l> `` |
-| `dap_switch_thread` | Switch current thread | normal: `` <space>Gst ``, select: `` <space>Gst `` |
-| `dap_switch_stack_frame` | Switch stack frame | normal: `` <space>Gsf ``, select: `` <space>Gsf `` |
-| `dap_enable_exceptions` | Enable exception breakpoints | normal: `` <space>Ge ``, select: `` <space>Ge `` |
-| `dap_disable_exceptions` | Disable exception breakpoints | normal: `` <space>GE ``, select: `` <space>GE `` |
+| `dap_launch` | Launch debug target | normal: `` <space>el ``, select: `` <space>el `` |
+| `dap_restart` | Restart debugging session | normal: `` <space>er ``, select: `` <space>er `` |
+| `dap_toggle_breakpoint` | Toggle breakpoint | normal: `` <space>eb ``, select: `` <space>eb `` |
+| `dap_continue` | Continue program execution | normal: `` <space>ec ``, select: `` <space>ec `` |
+| `dap_pause` | Pause program execution | normal: `` <space>eh ``, select: `` <space>eh `` |
+| `dap_step_in` | Step in | normal: `` <space>ei ``, select: `` <space>ei `` |
+| `dap_step_out` | Step out | normal: `` <space>eo ``, select: `` <space>eo `` |
+| `dap_next` | Step to next | normal: `` <space>en ``, select: `` <space>en `` |
+| `dap_variables` | List variables | normal: `` <space>ev ``, select: `` <space>ev `` |
+| `dap_terminate` | End debug session | normal: `` <space>et ``, select: `` <space>et `` |
+| `dap_edit_condition` | Edit breakpoint condition on current line | normal: `` <space>e<C-c> ``, select: `` <space>e<C-c> `` |
+| `dap_edit_log` | Edit breakpoint log message on current line | normal: `` <space>e<C-l> ``, select: `` <space>e<C-l> `` |
+| `dap_switch_thread` | Switch current thread | normal: `` <space>est ``, select: `` <space>est `` |
+| `dap_switch_stack_frame` | Switch stack frame | normal: `` <space>esf ``, select: `` <space>esf `` |
+| `dap_enable_exceptions` | Enable exception breakpoints | normal: `` <space>ee ``, select: `` <space>ee `` |
+| `dap_disable_exceptions` | Disable exception breakpoints | normal: `` <space>eE ``, select: `` <space>eE `` |
 | `shell_pipe` | Pipe selections through shell command | normal: `` \| ``, select: `` \| `` |
 | `shell_pipe_to` | Pipe selections into shell command ignoring output | normal: `` <A-\|> ``, select: `` <A-\|> `` |
 | `shell_insert_output` | Insert shell command output before selections | normal: `` ! ``, select: `` ! `` |
@@ -299,3 +319,4 @@
 | `extend_to_word` | Extend to a two-character label | select: `` gw `` |
 | `goto_next_tabstop` | goto next snippet placeholder |  |
 | `goto_prev_tabstop` | goto next snippet placeholder |  |
+| `select_register_history` | Select an item from a register's history | normal: `` <C-r> ``, select: `` <C-r> `` |
