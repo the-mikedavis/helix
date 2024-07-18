@@ -2785,7 +2785,7 @@ fn global_search(cx: &mut Context) {
          }| { Some((path.as_ref().into(), Some((*line_start, *line_end)))) },
     )
     .with_history_register(Some(reg))
-    .with_dynamic_query(get_files, Some(275));
+    .with_dynamic_query(get_files, Some(200));
 
     cx.push_layer(Box::new(overlaid(picker)));
 }
