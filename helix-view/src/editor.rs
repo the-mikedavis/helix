@@ -11,7 +11,7 @@ use crate::{
     register::Registers,
     theme::{self, Theme},
     tree::{self, Tree},
-    Document, DocumentId, View, ViewId,
+    Dictionary, Document, DocumentId, View, ViewId,
 };
 use dap::StackFrame;
 use helix_event::dispatch;
@@ -1090,6 +1090,9 @@ pub struct Editor {
 
     pub mouse_down_range: Option<Range>,
     pub cursor_cache: CursorCache,
+
+    /// HACK:
+    pub dictionary: Dictionary,
 }
 
 pub type Motion = Box<dyn Fn(&mut Editor)>;
@@ -1170,6 +1173,30 @@ impl Editor {
         // HAXX: offset the render area height by 1 to account for prompt/commandline
         area.height -= 1;
 
+        // HACK: what's the right interface for Spellbook to expose so we don't have to
+        // read these entire files into strings? (See associated TODO in Spellbook.)
+        let aff =
+            std::fs::read_to_string(helix_loader::runtime_file("dictionaries/en_US/en_US.aff"))
+                .unwrap();
+        let dic =
+            std::fs::read_to_string(helix_loader::runtime_file("dictionaries/en_US/en_US.dic"))
+                .unwrap();
+        // HACK: All this stuff should happen off the main thread.
+        let mut dictionary = Dictionary::new(&aff, &dic).unwrap();
+        if let Ok(file) = std::fs::File::open(helix_loader::personal_dictionary_file()) {
+            use std::io::{BufRead as _, BufReader};
+            let reader = BufReader::with_capacity(8 * 1024, file);
+            for line in reader.lines() {
+                let line = line.unwrap();
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+
+                dictionary.add(line).unwrap();
+            }
+        }
+
         Self {
             mode: Mode::Normal,
             tree: Tree::new(area),
@@ -1208,6 +1235,7 @@ impl Editor {
             handlers,
             mouse_down_range: None,
             cursor_cache: CursorCache::default(),
+            dictionary,
         }
     }
 

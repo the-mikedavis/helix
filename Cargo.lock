@@ -1515,6 +1515,7 @@ dependencies = [
  "serde",
  "serde_json",
  "slotmap",
+ "spellbook",
  "tempfile",
  "thiserror",
  "tokio",
@@ -2300,6 +2301,15 @@ checksum = "ce305eb0b4296696835b71df73eb912e0f1ffd2556a501fcede6e0c50349191c"
 dependencies = [
  "libc",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "spellbook"
+version = "0.0.1"
+source = "git+https://github.com/helix-editor/spellbook.git#081941abfd3680f07281961bc76ece5bb6f88bfd"
+dependencies = [
+ "ahash",
+ "hashbrown",
 ]
 
 [[package]]

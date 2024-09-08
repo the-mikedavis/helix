@@ -657,6 +657,7 @@ impl MappableCommand {
         goto_next_tabstop, "goto next snippet placeholder",
         goto_prev_tabstop, "goto next snippet placeholder",
         select_register_history, "Select an item from a register's history",
+        add_word_to_personal_dictionary, "Add the word under the primary cursor to the personal dictionary for the current locale",
     );
 }
 
@@ -6781,4 +6782,62 @@ fn select_register_history(cx: &mut Context) {
         );
         cx.push_layer(Box::new(overlaid(picker)));
     })
+}
+
+// HACK: this should be folded into code actions.
+fn add_word_to_personal_dictionary(cx: &mut Context) {
+    let (view, doc) = current_ref!(cx.editor);
+    let text = doc.text().slice(..);
+    let selection = doc.selection(view.id).primary();
+    let range = if selection.len() == 1 {
+        textobject::textobject_word(text, selection, textobject::TextObject::Inside, 1, false)
+    } else {
+        selection
+    };
+    let word = range.fragment(text);
+
+    let prompt = ui::Prompt::new(
+        "add-word:".into(),
+        None,
+        ui::completers::none,
+        move |cx, input: &str, event: PromptEvent| {
+            fn append_word(word: &str) -> std::io::Result<()> {
+                use std::io::Write;
+                let path = helix_loader::state_dir().join("personal-dictionary.txt");
+                let mut file = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)?;
+                file.write_all(word.as_bytes())?;
+                file.write_all(helix_core::NATIVE_LINE_ENDING.as_str().as_bytes())?;
+                file.sync_data()?;
+
+                Ok(())
+            }
+
+            if event != PromptEvent::Validate {
+                return;
+            }
+
+            if let Err(err) = cx.editor.dictionary.add(input) {
+                cx.editor.set_error(format!(
+                    "Failed to add \"{input}\" to the dictionary: {err}"
+                ));
+                return;
+            }
+
+            if let Err(err) = append_word(input) {
+                cx.editor.set_error(format!(
+                    "Failed to persist \"{input}\" to the on-disk dictionary: {err}"
+                ));
+                return;
+            }
+
+            cx.editor
+                .set_status(format!("Added \"{input}\" to the dictionary"));
+        },
+    )
+    .with_line(word.into(), cx.editor);
+
+    cx.push_layer(Box::new(prompt));
 }

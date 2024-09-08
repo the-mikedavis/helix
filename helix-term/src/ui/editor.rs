@@ -20,6 +20,7 @@ use helix_core::{
     unicode::width::UnicodeWidthStr,
     visual_offset_from_block, Change, Position, Range, Selection, Transaction,
 };
+use helix_stdx::rope::RopeSliceExt;
 use helix_view::{
     annotations::diagnostics::DiagnosticFilter,
     document::{Mode, SavePoint, SCRATCH_BUFFER_NAME},
@@ -27,7 +28,7 @@ use helix_view::{
     graphics::{Color, CursorKind, Modifier, Rect, Style},
     input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     keyboard::{KeyCode, KeyModifiers},
-    Document, Editor, Theme, View,
+    Dictionary, Document, Editor, Theme, View,
 };
 use std::{mem::take, num::NonZeroUsize, path::PathBuf, rc::Rc, sync::Arc};
 
@@ -153,6 +154,10 @@ impl EditorView {
                 continue;
             }
             overlay_highlights = Box::new(syntax::merge(overlay_highlights, diagnostic));
+        }
+        let spell = Self::doc_spell_highlights(&editor.dictionary, doc, view, theme);
+        if !spell.is_empty() {
+            overlay_highlights = Box::new(syntax::merge(overlay_highlights, spell));
         }
 
         if is_focused {
@@ -504,6 +509,55 @@ impl EditorView {
             warning_vec,
             error_vec,
         ]
+    }
+
+    pub fn doc_spell_highlights(
+        dict: &Dictionary,
+        doc: &Document,
+        view: &View,
+        theme: &Theme,
+    ) -> Vec<(usize, std::ops::Range<usize>)> {
+        // This is **very** ***very*** naive and not at all reflective of what the actual
+        // integration will look like. Doing this per-render is very needlessly expensive.
+        // Instead it should be done in the background and possibly incrementally (only
+        // re-checking ranges that are affected by document changes). However regex-cursor
+        // is very fast and so is spellbook (degenerate cases max out at 1μs in a release
+        // build on my machine, i.e. a worst case throughput of 2 million words / second) so
+        // this is suitable for my testing. I mostly want to find cases where spellbook's
+        // results are surprising.
+        // Also we want to use tree-sitter to mark nodes as ones that should be spellchecked
+        // and maybe specify strategies for doing tokenization (try to tokenize prose vs.
+        // programming languages).
+        // Plus these should really be proper diagnostics so that we can pull them up in the
+        // diagnostics picker and jump to them.
+        use helix_stdx::rope::Regex;
+        use once_cell::sync::Lazy;
+        use std::borrow::Cow;
+        static WORDS: Lazy<Regex> = Lazy::new(|| Regex::new(r#"[0-9A-Z]*(['-]?[a-z]+)*"#).unwrap());
+
+        let mut spans = Vec::new();
+        let error = theme.find_scope_index("diagnostic.error").unwrap();
+
+        let text = doc.text().slice(..);
+        let start = text.line_to_char(text.char_to_line(doc.view_offset(view.id).anchor));
+        let end = text.line_to_char(view.estimate_last_doc_line(doc) + 1);
+
+        for match_ in WORDS.find_iter(text.regex_input_at(start..end)) {
+            let range = text.byte_to_char(match_.start())..text.byte_to_char(match_.end());
+            // TODO: consider how to allow passing the RopeSlice to spellbook:
+            // * Use an Input trait like regex-cursor?
+            // * Accept `impl Iterator<Item = char>`?
+            // * Maybe spellbook should have an internal `String` buffer and it should try to copy
+            //   the word into that? Only in the best case do you not have to allocate at all.
+            //   Maybe we should use a single string buffer and perform all changes to the string
+            //   in-place instead of using `replace` from the stdlib and Cows.
+            let word = Cow::from(text.slice(range.clone()));
+            if !dict.check(&word) {
+                spans.push((error, range))
+            }
+        }
+
+        spans
     }
 
     /// Get highlight spans for selections in a document view.
