@@ -1402,6 +1402,8 @@ dependencies = [
  "bitflags",
  "dunce",
  "etcetera",
+ "once_cell",
+ "regex-automata",
  "regex-cursor",
  "ropey",
  "rustix",
