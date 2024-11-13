@@ -1,4 +1,4 @@
-use helix_core::{coords_at_pos, encoding, Position};
+use helix_core::{coords_at_pos, diagnostic::Severity, encoding, Position};
 use helix_lsp::lsp::DiagnosticSeverity;
 use helix_view::document::DEFAULT_LANGUAGE_NAME;
 use helix_view::{
@@ -231,7 +231,6 @@ where
         .diagnostics()
         .iter()
         .fold((0, 0), |mut counts, diag| {
-            use helix_core::diagnostic::Severity;
             match diag.severity {
                 Some(Severity::Warning) => counts.0 += 1,
                 Some(Severity::Error) | None => counts.1 += 1,
@@ -243,7 +242,7 @@ where
     if warnings > 0 {
         write(
             context,
-            "●".to_string(),
+            Severity::Warning.indicator().to_string(),
             Some(context.editor.theme.get("warning")),
         );
         write(context, format!(" {} ", warnings), None);
@@ -252,7 +251,7 @@ where
     if errors > 0 {
         write(
             context,
-            "●".to_string(),
+            Severity::Error.indicator().to_string(),
             Some(context.editor.theme.get("error")),
         );
         write(context, format!(" {} ", errors), None);
@@ -285,7 +284,7 @@ where
     if warnings > 0 {
         write(
             context,
-            "●".to_string(),
+            Severity::Warning.indicator().to_string(),
             Some(context.editor.theme.get("warning")),
         );
         write(context, format!(" {} ", warnings), None);
@@ -294,7 +293,7 @@ where
     if errors > 0 {
         write(
             context,
-            "●".to_string(),
+            Severity::Error.indicator().to_string(),
             Some(context.editor.theme.get("error")),
         );
         write(context, format!(" {} ", errors), None);
