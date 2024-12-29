@@ -47,6 +47,15 @@ pub struct Config {
     dark: String,
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            light: "grv_light".into(),
+            dark: "grv".into(),
+        }
+    }
+}
+
 impl Config {
     pub fn choose(&self, preference: Option<Mode>) -> &str {
         match preference {
