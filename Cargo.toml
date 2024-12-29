@@ -49,6 +49,9 @@ foldhash = "0.1"
 parking_lot = "0.12"
 percent-encoding = "2.3"
 
+[patch.crates-io]
+crossterm = { git = "https://github.com/the-mikedavis/crossterm", branch = "md/theme-mode" }
+
 [workspace.package]
 version = "25.1.1"
 edition = "2021"
