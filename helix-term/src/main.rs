@@ -65,7 +65,7 @@ FLAGS:
     --health [CATEGORY]            Checks for potential errors in editor setup
                                    CATEGORY can be a language or one of 'clipboard', 'languages'
                                    or 'all'. 'all' is the default if not specified.
-    -g, --grammar {{fetch|build}}    Fetches or builds tree-sitter grammars listed in languages.toml
+    -g, --grammar update           Updates the language support repository
     -c, --config <file>            Specifies a file to use for configuration
     -v                             Increases logging verbosity each use for up to 3 times
     --log <file>                   Specifies a file to use for logging
@@ -100,16 +100,6 @@ FLAGS:
         }
 
         std::process::exit(0);
-    }
-
-    if args.fetch_grammars {
-        helix_loader::grammar::fetch_grammars()?;
-        return Ok(0);
-    }
-
-    if args.build_grammars {
-        helix_loader::grammar::build_grammars(None)?;
-        return Ok(0);
     }
 
     setup_logging(args.verbosity).context("failed to initialize logging")?;
@@ -150,6 +140,11 @@ FLAGS:
         let _ = std::io::stdin().read(&mut []);
         helix_core::config::default_lang_loader()
     });
+
+    if args.update_grammars {
+        helix_loader::grammar::update_grammars(lang_loader.grammars())?;
+        return Ok(0);
+    }
 
     // TODO: use the thread local executor to spawn the application task separately from the work pool
     let mut app = Application::new(args, config, lang_loader).context("unable to start Helix")?;

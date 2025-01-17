@@ -47,7 +47,6 @@
           "CHANGELOG.md"
           "shell.nix"
           "default.nix"
-          "grammars.nix"
           "flake.nix"
           "flake.lock"
         ];
@@ -69,12 +68,9 @@
           filter = ignorePaths;
         };
       makeOverridableHelix = old: config: let
-        grammars = pkgs.callPackage ./grammars.nix config;
         runtimeDir = pkgs.runCommand "helix-runtime" {} ''
           mkdir -p $out
           ln -s ${mkRootPath "runtime"}/* $out
-          rm -r $out/grammars
-          ln -s ${grammars} $out/grammars
         '';
         helix-wrapped =
           pkgs.runCommand
@@ -117,8 +113,6 @@
         inherit (craneLibMSRV.crateNameFromCargoToml {cargoToml = ./helix-term/Cargo.toml;}) pname;
         inherit (craneLibMSRV.crateNameFromCargoToml {cargoToml = ./Cargo.toml;}) version;
         src = filteredSource;
-        # disable fetching and building of tree-sitter grammars in the helix-term build.rs
-        HELIX_DISABLE_AUTO_GRAMMAR_BUILD = "1";
         buildInputs = [stdenv.cc.cc.lib];
         nativeBuildInputs = [pkgs.installShellFiles];
         # disable tests

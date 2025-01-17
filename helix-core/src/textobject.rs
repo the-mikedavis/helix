@@ -7,7 +7,7 @@ use crate::chars::{categorize_char, char_is_whitespace, CharCategory};
 use crate::graphemes::{next_grapheme_boundary, prev_grapheme_boundary};
 use crate::line_ending::rope_is_line_ending;
 use crate::movement::Direction;
-use crate::syntax::LanguageConfiguration;
+use crate::syntax::{LanguageConfiguration, Loader};
 use crate::Range;
 use crate::{surround, Syntax};
 
@@ -255,6 +255,7 @@ fn textobject_pair_surround_impl(
 /// Transform the given range to select text objects based on tree-sitter.
 /// `object_name` is a query capture base name like "function", "class", etc.
 /// `slice_tree` is the tree-sitter node corresponding to given text slice.
+#[allow(clippy::too_many_arguments)]
 pub fn textobject_treesitter(
     slice: RopeSlice,
     range: Range,
@@ -262,6 +263,7 @@ pub fn textobject_treesitter(
     object_name: &str,
     slice_tree: Node,
     lang_config: &LanguageConfiguration,
+    loader: &Loader,
     _count: usize,
 ) -> Range {
     let get_range = move || -> Option<Range> {
@@ -270,7 +272,7 @@ pub fn textobject_treesitter(
         let capture_name = format!("{}.{}", object_name, textobject); // eg. function.inner
         let mut cursor = QueryCursor::new();
         let node = lang_config
-            .textobject_query()?
+            .textobject_query(loader)?
             .capture_nodes(&capture_name, slice_tree, slice, &mut cursor)?
             .filter(|node| node.byte_range().contains(&byte_pos))
             .min_by_key(|node| node.byte_range().len())?;

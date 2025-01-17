@@ -13,7 +13,7 @@ use crate::{
     },
     line_ending::rope_is_line_ending,
     position::char_idx_at_visual_block_offset,
-    syntax::LanguageConfiguration,
+    syntax::{LanguageConfiguration, Loader},
     text_annotations::TextAnnotations,
     textobject::TextObject,
     visual_offset_from_block, Range, RopeSlice, Selection, Syntax,
@@ -560,6 +560,7 @@ fn reached_target(target: WordMotionTarget, prev_ch: char, next_ch: char) -> boo
 
 /// Finds the range of the next or previous textobject in the syntax sub-tree of `node`.
 /// Returns the range in the forwards direction.
+#[allow(clippy::too_many_arguments)]
 pub fn goto_treesitter_object(
     slice: RopeSlice,
     range: Range,
@@ -567,6 +568,7 @@ pub fn goto_treesitter_object(
     dir: Direction,
     slice_tree: Node,
     lang_config: &LanguageConfiguration,
+    loader: &Loader,
     count: usize,
 ) -> Range {
     let get_range = move |range: Range| -> Option<Range> {
@@ -574,7 +576,7 @@ pub fn goto_treesitter_object(
 
         let cap_name = |t: TextObject| format!("{}.{}", object_name, t);
         let mut cursor = QueryCursor::new();
-        let nodes = lang_config.textobject_query()?.capture_nodes_any(
+        let nodes = lang_config.textobject_query(loader)?.capture_nodes_any(
             &[
                 &cap_name(TextObject::Movement),
                 &cap_name(TextObject::Around),

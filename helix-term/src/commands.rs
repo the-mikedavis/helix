@@ -3354,6 +3354,7 @@ fn insert_at_line_end(cx: &mut Context) {
 fn insert_with_indent(cx: &mut Context, cursor_fallback: IndentFallbackPos) {
     enter_insert_mode(cx);
 
+    let loader = cx.editor.syn_loader.clone().load();
     let (view, doc) = current!(cx.editor);
 
     let text = doc.text().slice(..);
@@ -3378,6 +3379,7 @@ fn insert_with_indent(cx: &mut Context, cursor_fallback: IndentFallbackPos) {
             let indent = indent::indent_for_newline(
                 language_config,
                 syntax,
+                &loader,
                 &doc.config.load().indent_heuristic,
                 &doc.indent_style,
                 tab_width,
@@ -3474,6 +3476,7 @@ pub enum Open {
 fn open(cx: &mut Context, open: Open) {
     let count = cx.count();
     enter_insert_mode(cx);
+    let loader = cx.editor.syn_loader.clone().load();
     let (view, doc) = current!(cx.editor);
 
     let text = doc.text().slice(..);
@@ -3523,6 +3526,7 @@ fn open(cx: &mut Context, open: Open) {
             _ => indent::indent_for_newline(
                 doc.language_config(),
                 doc.syntax(),
+                &loader,
                 &doc.config.load().indent_heuristic,
                 &doc.indent_style,
                 doc.tab_width(),
@@ -3986,6 +3990,7 @@ pub mod insert {
 
     pub fn insert_newline(cx: &mut Context) {
         let config = cx.editor.config();
+        let loader = cx.editor.syn_loader.load();
         let (view, doc) = current_ref!(cx.editor);
         let text = doc.text().slice(..);
         let line_ending = doc.line_ending.as_str();
@@ -4034,6 +4039,7 @@ pub mod insert {
                     _ => indent::indent_for_newline(
                         doc.language_config(),
                         doc.syntax(),
+                        &loader,
                         &config.indent_heuristic,
                         &doc.indent_style,
                         doc.tab_width(),
@@ -5538,6 +5544,7 @@ fn scroll_down(cx: &mut Context) {
 fn goto_ts_object_impl(cx: &mut Context, object: &'static str, direction: Direction) {
     let count = cx.count();
     let motion = move |editor: &mut Editor| {
+        let loader = editor.syn_loader.clone().load();
         let (view, doc) = current!(editor);
         if let Some((lang_config, syntax)) = doc.language_config().zip(doc.syntax()) {
             let text = doc.text().slice(..);
@@ -5551,6 +5558,7 @@ fn goto_ts_object_impl(cx: &mut Context, object: &'static str, direction: Direct
                     direction,
                     root,
                     lang_config,
+                    &loader,
                     count,
                 );
 
@@ -5638,6 +5646,7 @@ fn select_textobject(cx: &mut Context, objtype: textobject::TextObject) {
         cx.editor.autoinfo = None;
         if let Some(ch) = event.char() {
             let textobject = move |editor: &mut Editor| {
+                let loader = editor.syn_loader.clone().load();
                 let (view, doc) = current!(editor);
                 let text = doc.text().slice(..);
 
@@ -5653,6 +5662,7 @@ fn select_textobject(cx: &mut Context, objtype: textobject::TextObject) {
                         obj_name,
                         syntax.tree().root_node(),
                         lang_config,
+                        &loader,
                         count,
                     )
                 };
