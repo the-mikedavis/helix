@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
     str::FromStr as _,
@@ -30,39 +31,44 @@ pub(crate) fn path_completion(
     let start = text.line_to_char(cur_line).max(cursor.saturating_sub(1000));
     let line_until_cursor = text.slice(start..cursor);
 
-    let (dir_path, typed_file_name) =
-        get_path_suffix(line_until_cursor, false).and_then(|matched_path| {
-            let matched_path = Cow::from(matched_path);
-            let path: Cow<_> = if matched_path.starts_with("file://") {
-                Url::from_str(&matched_path)
-                    .ok()
-                    .and_then(|url| url.to_file_path().ok())?
-                    .into()
-            } else {
-                Path::new(&*matched_path).into()
-            };
-            let path = path::expand(&path);
-            let parent_dir = doc.path().and_then(|dp| dp.parent());
-            let path = match parent_dir {
-                Some(parent_dir) if path.is_relative() => parent_dir.join(&path),
-                _ => path.into_owned(),
-            };
-            #[cfg(windows)]
-            let ends_with_slash = matches!(matched_path.as_bytes().last(), Some(b'/' | b'\\'));
-            #[cfg(not(windows))]
-            let ends_with_slash = matches!(matched_path.as_bytes().last(), Some(b'/'));
+    let matched_path = Cow::from(get_path_suffix(line_until_cursor, false)?);
+    #[cfg(windows)]
+    let ends_with_slash = matches!(matched_path.as_bytes().last(), Some(b'/' | b'\\'));
+    #[cfg(not(windows))]
+    let ends_with_slash = matches!(matched_path.as_bytes().last(), Some(b'/'));
+    let path: Cow<_> = if matched_path.starts_with("file://") {
+        Url::from_str(&matched_path)
+            .ok()
+            .and_then(|url| url.to_file_path().ok())?
+            .into()
+    } else {
+        Path::new(&*matched_path).into()
+    };
 
-            if ends_with_slash {
-                Some((PathBuf::from(path.as_path()), None))
-            } else {
-                path.parent().map(|parent_path| {
-                    (
-                        PathBuf::from(parent_path),
-                        path.file_name().and_then(|f| f.to_str().map(String::from)),
-                    )
-                })
-            }
-        })?;
+    let path = path::expand(&path);
+    let split = |path: &Path| -> Option<_> {
+        if ends_with_slash {
+            Some((PathBuf::from(path), None))
+        } else {
+            Some((
+                PathBuf::from(path.parent()?),
+                path.file_name().and_then(|f| f.to_str().map(String::from)),
+            ))
+        }
+    };
+
+    let paths = if path.is_relative() {
+        doc.path()
+            .and_then(|p| {
+                let parent_dir = p.parent()?.join(&path);
+                split(&parent_dir)
+            })
+            .into_iter()
+            .chain(split(&helix_stdx::env::current_working_dir().join(&path)))
+            .collect()
+    } else {
+        BTreeSet::from([split(&path)?])
+    };
 
     if handle.is_canceled() {
         return None;
@@ -71,55 +77,55 @@ pub(crate) fn path_completion(
     // TODO: handle properly in the future
     const PRIORITY: i8 = 1;
     let future = move || {
-        let Ok(read_dir) = std::fs::read_dir(&dir_path) else {
-            return CompletionResponse {
-                items: CompletionItems::Other(Vec::new()),
-                provider: CompletionProvider::Path,
-                context: ResponseContext {
-                    is_incomplete: false,
-                    priority: PRIORITY,
-                    savepoint,
-                },
+        let mut items = Vec::new();
+
+        for (dir_path, typed_file_name) in paths {
+            let Ok(read_dir) = std::fs::read_dir(&dir_path) else {
+                continue;
             };
-        };
 
-        let edit_diff = typed_file_name
-            .as_ref()
-            .map(|s| s.chars().count())
-            .unwrap_or_default();
+            let edit_diff = typed_file_name
+                .as_ref()
+                .map(|s| s.chars().count())
+                .unwrap_or_default();
 
-        let res: Vec<_> = read_dir
-            .filter_map(Result::ok)
-            .filter_map(|dir_entry| {
-                dir_entry
-                    .metadata()
-                    .ok()
-                    .and_then(|md| Some((dir_entry.file_name().into_string().ok()?, md)))
-            })
-            .map_while(|(file_name, md)| {
-                if handle.is_canceled() {
-                    return None;
-                }
+            items.extend(
+                read_dir
+                    .filter_map(Result::ok)
+                    .filter_map(|dir_entry| {
+                        dir_entry
+                            .metadata()
+                            .ok()
+                            .and_then(|md| Some((dir_entry.file_name().into_string().ok()?, md)))
+                    })
+                    .map_while(|(file_name, md)| {
+                        if handle.is_canceled() {
+                            return None;
+                        }
 
-                let kind = path_kind(&md);
-                let documentation = path_documentation(&md, &dir_path.join(&file_name), kind);
+                        let kind = path_kind(&md);
+                        let documentation =
+                            path_documentation(&md, &dir_path.join(&file_name), kind);
 
-                let transaction = Transaction::change_by_selection(&text, &selection, |range| {
-                    let cursor = range.cursor(text.slice(..));
-                    (cursor - edit_diff, cursor, Some((&file_name).into()))
-                });
+                        let transaction =
+                            Transaction::change_by_selection(&text, &selection, |range| {
+                                let cursor = range.cursor(text.slice(..));
+                                (cursor - edit_diff, cursor, Some((&file_name).into()))
+                            });
 
-                Some(CompletionItem::Other(core::CompletionItem {
-                    kind: Cow::Borrowed(kind),
-                    label: file_name.into(),
-                    transaction,
-                    documentation: Some(documentation),
-                    provider: CompletionProvider::Path,
-                }))
-            })
-            .collect();
+                        Some(CompletionItem::Other(core::CompletionItem {
+                            kind: Cow::Borrowed(kind),
+                            label: file_name.into(),
+                            transaction,
+                            documentation: Some(documentation),
+                            provider: CompletionProvider::Path,
+                        }))
+                    }),
+            );
+        }
+
         CompletionResponse {
-            items: CompletionItems::Other(res),
+            items: CompletionItems::Other(items),
             provider: CompletionProvider::Path,
             context: ResponseContext {
                 is_incomplete: false,
