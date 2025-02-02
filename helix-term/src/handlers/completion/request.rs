@@ -22,7 +22,7 @@ use crate::config::Config;
 use crate::handlers::completion::item::CompletionResponse;
 use crate::handlers::completion::path::path_completion;
 use crate::handlers::completion::{
-    handle_response, replace_completions, show_completion, CompletionItems,
+    handle_response, replace_completions, show_completion, word, CompletionItems,
 };
 use crate::job::{dispatch, dispatch_blocking};
 use crate::ui;
@@ -243,9 +243,15 @@ fn request_completions(
         doc.selection(view.id).clone(),
         doc,
         handle.clone(),
-        savepoint,
+        savepoint.clone(),
     ) {
         requests.spawn_blocking(path_completion_request);
+    }
+
+    if let Some(word_completion_request) =
+        word::completion(editor, trigger, handle.clone(), savepoint)
+    {
+        requests.spawn_blocking(word_completion_request);
     }
 
     let ui = compositor.find::<ui::EditorView>().unwrap();
