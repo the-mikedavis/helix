@@ -507,6 +507,7 @@ impl Default for StatusLineConfig {
             center: vec![],
             right: vec![
                 E::Diagnostics,
+                E::WorkspaceDiagnostics,
                 E::Selections,
                 E::Register,
                 E::Position,
