@@ -9,7 +9,7 @@ _hx() {
 
     case "$prev" in
     -g | --grammar)
-        mapfile -t COMPREPLY < <(compgen -W 'fetch build' -- "$cur")
+        mapfile -t COMPREPLY < <(compgen -W 'update' -- "$cur")
         return 0
         ;;
     --health)

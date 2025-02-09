@@ -4,7 +4,7 @@
 complete -c hx -s h -l help -d "Prints help information"
 complete -c hx -l tutor -d "Loads the tutorial"
 complete -c hx -l health -xa "(__hx_langs_ops)" -d "Checks for errors"
-complete -c hx -s g -l grammar -x -a "fetch build" -d "Fetch or build tree-sitter grammars"
+complete -c hx -s g -l grammar -x -a update -d "Update tree-sitter grammars"
 complete -c hx -s v -o vv -o vvv -d "Increases logging verbosity"
 complete -c hx -s V -l version -d "Prints version information"
 complete -c hx -l vsplit -d "Splits all given files vertically"

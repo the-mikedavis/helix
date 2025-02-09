@@ -4,7 +4,6 @@ use crossterm::{
     tty::IsTty,
 };
 use helix_core::config::{default_lang_config, user_lang_config};
-use helix_loader::grammar::load_runtime_file;
 use std::io::Write;
 
 #[derive(Copy, Clone)]
@@ -213,6 +212,7 @@ pub fn languages_all() -> std::io::Result<()> {
             .map(|formatter| formatter.command.as_str());
         write!(stdout, "{}", check_binary(formatter))?;
 
+        /*
         for ts_feat in TsFeature::all() {
             match load_runtime_file(&lang.language_id, ts_feat.runtime_filename()).is_ok() {
                 true => write!(stdout, "{}", color(fit("✓"), Color::Green))?,
@@ -221,6 +221,7 @@ pub fn languages_all() -> std::io::Result<()> {
         }
 
         writeln!(stdout)?;
+        */
 
         for cmd in cmds {
             write!(stdout, "{}", fit(""))?;
@@ -301,15 +302,18 @@ pub fn language(lang_str: String) -> std::io::Result<()> {
             .map(|formatter| formatter.command.to_string()),
     )?;
 
+    /*
     probe_parser(lang.grammar.as_ref().unwrap_or(&lang.language_id))?;
 
     for ts_feat in TsFeature::all() {
         probe_treesitter_feature(&lang_str, *ts_feat)?
     }
+    */
 
     Ok(())
 }
 
+/*
 fn probe_parser(grammar_name: &str) -> std::io::Result<()> {
     let stdout = std::io::stdout();
     let mut stdout = stdout.lock();
@@ -321,6 +325,7 @@ fn probe_parser(grammar_name: &str) -> std::io::Result<()> {
         Err(_) => writeln!(stdout, "{}", "None".yellow()),
     }
 }
+*/
 
 /// Display diagnostics about multiple LSPs and DAPs.
 fn probe_protocols<'a, I: Iterator<Item = &'a str> + 'a>(
@@ -371,6 +376,7 @@ fn probe_protocol(protocol_name: &str, server_cmd: Option<String>) -> std::io::R
     Ok(())
 }
 
+/*
 /// Display diagnostics about a feature that requires tree-sitter
 /// query files (highlights, textobjects, etc).
 fn probe_treesitter_feature(lang: &str, feature: TsFeature) -> std::io::Result<()> {
@@ -385,6 +391,7 @@ fn probe_treesitter_feature(lang: &str, feature: TsFeature) -> std::io::Result<(
 
     Ok(())
 }
+*/
 
 pub fn print_health(health_arg: Option<String>) -> std::io::Result<()> {
     match health_arg.as_deref() {

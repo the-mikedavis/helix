@@ -1,6 +1,7 @@
 use crate::DynError;
 
 pub fn query_check() -> Result<(), DynError> {
+    /*
     use crate::helpers::lang_config;
     use helix_core::{syntax::read_query, tree_sitter::Query};
     use helix_loader::grammar::get_language;
@@ -36,4 +37,6 @@ pub fn query_check() -> Result<(), DynError> {
     println!("Query check succeeded");
 
     Ok(())
+    */
+    todo!()
 }

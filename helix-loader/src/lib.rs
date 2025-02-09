@@ -132,6 +132,19 @@ pub fn cache_dir() -> PathBuf {
     path
 }
 
+pub fn state_dir() -> PathBuf {
+    let strategy = choose_base_strategy().expect("Unable to find the cache directory!");
+    let mut path = strategy
+        .state_dir()
+        .expect("state dir is always defined for base strategy");
+    path.push("helix");
+    path
+}
+
+pub fn language_support_dir() -> PathBuf {
+    state_dir().join("language-support")
+}
+
 pub fn config_file() -> PathBuf {
     CONFIG_FILE.get().map(|path| path.to_path_buf()).unwrap()
 }

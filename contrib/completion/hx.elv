@@ -27,8 +27,7 @@ set edit:completion:arg-completer[hx] = {|@args|
     } 
     # If the previous arg == --grammar, then only suggest:
     if (has-value $grammar $args[-2]) {
-      $candidate "fetch" "Fetch the tree-sitter grammars"
-      $candidate "build" "Build the tree-sitter grammars"
+      $candidate "update" "Update the tree-sitter grammars"
       return
     } 
     # When we have --config, we need a file
@@ -47,7 +46,7 @@ set edit:completion:arg-completer[hx] = {|@args|
   $candidate "--version" "(Prints version information)"
   $candidate "--tutor" "(Loads the tutorial)"
   $candidate "--health" "(Checks for errors in editor setup)"
-  $candidate "--grammar" "(Fetch or build the tree-sitter grammars)"
+  $candidate "--grammar" "(Update the tree-sitter grammars)"
   $candidate "--vsplit" "(Splits all given files vertically)"
   $candidate "--hsplit" "(Splits all given files horizontally)"
   $candidate "--config" "(Specifies a file to use for configuration)"

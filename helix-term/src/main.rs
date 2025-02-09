@@ -102,16 +102,6 @@ FLAGS:
         std::process::exit(0);
     }
 
-    if args.fetch_grammars {
-        helix_loader::grammar::fetch_grammars()?;
-        return Ok(0);
-    }
-
-    if args.build_grammars {
-        helix_loader::grammar::build_grammars(None)?;
-        return Ok(0);
-    }
-
     setup_logging(args.verbosity).context("failed to initialize logging")?;
 
     // NOTE: Set the working directory early so the correct configuration is loaded. Be aware that
@@ -146,6 +136,11 @@ FLAGS:
         let _ = std::io::stdin().read(&mut []);
         helix_core::config::default_lang_loader()
     });
+
+    if args.update_grammars {
+        helix_loader::grammar::update_grammars(lang_loader.grammar_loader())?;
+        return Ok(0);
+    }
 
     // TODO: use the thread local executor to spawn the application task separately from the work pool
     let mut app = Application::new(args, config, lang_loader).context("unable to start Helix")?;

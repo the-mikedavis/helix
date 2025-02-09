@@ -12,7 +12,7 @@ _hx() {
 		"--version[Prints version information]" \
 		"--tutor[Loads the tutorial]" \
 		"--health[Checks for errors in editor setup]:language:->health" \
-		"-g[Fetches or builds tree-sitter grammars]:action:->grammar" \
+		"-g[Updates tree-sitter grammars]:action:->grammar" \
 		"--grammar[Fetches or builds tree-sitter grammars]:action:->grammar" \
 		"--vsplit[Splits all given files vertically]" \
 		"--hsplit[Splits all given files horizontally]" \
@@ -29,7 +29,7 @@ _hx() {
 		_values 'language' $languages
 		;;
 	grammar)
-		_values 'action' fetch build
+		_values 'action' update
 		;;
 	esac
 }

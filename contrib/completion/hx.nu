@@ -10,14 +10,14 @@ def health_categories [] {
     return $completions
 }
 
-def grammar_categories [] { ["fetch", "build"] }
+def grammar_categories [] { ["update"] }
 
 # A post-modern text editor.
 export extern hx [
     --help(-h),                                 # Prints help information
     --tutor,                                    # Loads the tutorial
     --health: string@health_categories,         # Checks for potential errors in editor setup
-    --grammar(-g): string@grammar_categories,   # Fetches or builds tree-sitter grammars listed in `languages.toml`
+    --grammar(-g): string@grammar_categories,   # Updates tree-sitter grammars listed in `languages.toml`
     --config(-c): glob,                         # Specifies a file to use for configuration
     -v,                                         # Increases logging verbosity each use for up to 3 times
     --log: glob,                                # Specifies a file to use for logging

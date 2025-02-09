@@ -1,13 +1,14 @@
 use std::fmt::Display;
+use std::{iter, ops};
 
 use ropey::RopeSlice;
-use tree_sitter::{Node, QueryCursor};
 
 use crate::chars::{categorize_char, char_is_whitespace, CharCategory};
 use crate::graphemes::{next_grapheme_boundary, prev_grapheme_boundary};
 use crate::line_ending::rope_is_line_ending;
 use crate::movement::Direction;
-use crate::syntax::LanguageConfiguration;
+use crate::syntax::{self, TREE_SITTER_MATCH_LIMIT};
+use crate::tree_sitter::{InactiveQueryCursor, Node, Query, RopeInput};
 use crate::Range;
 use crate::{surround, Syntax};
 
@@ -252,26 +253,119 @@ fn textobject_pair_surround_impl(
         .unwrap_or(range)
 }
 
+#[derive(Debug)]
+pub enum CapturedNode<'a> {
+    Single(Node<'a>),
+    /// Guaranteed to be not empty
+    Grouped(Vec<Node<'a>>),
+}
+
+impl CapturedNode<'_> {
+    pub fn start_byte(&self) -> usize {
+        match self {
+            Self::Single(n) => n.start_byte() as usize,
+            Self::Grouped(ns) => ns[0].start_byte() as usize,
+        }
+    }
+
+    pub fn end_byte(&self) -> usize {
+        match self {
+            Self::Single(n) => n.end_byte() as usize,
+            Self::Grouped(ns) => ns.last().unwrap().end_byte() as usize,
+        }
+    }
+
+    pub fn byte_range(&self) -> ops::Range<usize> {
+        self.start_byte()..self.end_byte()
+    }
+}
+
+#[derive(Debug)]
+pub struct TextObjectQuery {
+    query: Query,
+}
+
+impl TextObjectQuery {
+    pub fn new(query: Query) -> Self {
+        Self { query }
+    }
+
+    /// Run the query on the given node and return sub nodes which match given
+    /// capture ("function.inside", "class.around", etc).
+    ///
+    /// Captures may contain multiple nodes by using quantifiers (+, *, etc),
+    /// and support for this is partial and could use improvement.
+    ///
+    /// ```query
+    /// (comment)+ @capture
+    ///
+    /// ; OR
+    /// (
+    ///   (comment)*
+    ///   .
+    ///   (function)
+    /// ) @capture
+    /// ```
+    pub fn capture_nodes<'a>(
+        &'a self,
+        capture_name: &str,
+        node: &Node<'a>,
+        slice: RopeSlice<'a>,
+    ) -> Option<impl Iterator<Item = CapturedNode<'a>>> {
+        self.capture_nodes_any(&[capture_name], node, slice)
+    }
+
+    /// Find the first capture that exists out of all given `capture_names`
+    /// and return sub nodes that match this capture.
+    pub fn capture_nodes_any<'a>(
+        &'a self,
+        capture_names: &[&str],
+        node: &Node<'a>,
+        slice: RopeSlice<'a>,
+    ) -> Option<impl Iterator<Item = CapturedNode<'a>>> {
+        let capture = capture_names
+            .iter()
+            .find_map(|cap| self.query.get_capture(cap))?;
+
+        let mut cursor = InactiveQueryCursor::new();
+        cursor.set_match_limit(TREE_SITTER_MATCH_LIMIT);
+        let mut cursor = cursor.execute_query(&self.query, node, RopeInput::new(slice));
+        let capture_node = iter::from_fn(move || {
+            let (mat, _) = cursor.next_matched_node()?;
+            Some(mat.nodes_for_capture(capture).cloned().collect())
+        })
+        .filter_map(move |nodes: Vec<_>| {
+            if nodes.len() > 1 {
+                Some(CapturedNode::Grouped(nodes))
+            } else {
+                nodes.into_iter().map(CapturedNode::Single).next()
+            }
+        });
+        Some(capture_node)
+    }
+}
+
 /// Transform the given range to select text objects based on tree-sitter.
 /// `object_name` is a query capture base name like "function", "class", etc.
 /// `slice_tree` is the tree-sitter node corresponding to given text slice.
+#[allow(clippy::too_many_arguments)]
 pub fn textobject_treesitter(
     slice: RopeSlice,
     range: Range,
     textobject: TextObject,
     object_name: &str,
-    slice_tree: Node,
-    lang_config: &LanguageConfiguration,
+    syntax: &Syntax,
+    loader: &syntax::Loader,
     _count: usize,
 ) -> Range {
+    let root = syntax.tree().root_node();
+    let textobject_query = loader.textobject_query(syntax.root_language());
     let get_range = move || -> Option<Range> {
         let byte_pos = slice.char_to_byte(range.cursor(slice));
 
         let capture_name = format!("{}.{}", object_name, textobject); // eg. function.inner
-        let mut cursor = QueryCursor::new();
-        let node = lang_config
-            .textobject_query()?
-            .capture_nodes(&capture_name, slice_tree, slice, &mut cursor)?
+        let node = textobject_query?
+            .capture_nodes(&capture_name, &root, slice)?
             .filter(|node| node.byte_range().contains(&byte_pos))
             .min_by_key(|node| node.byte_range().len())?;
 
