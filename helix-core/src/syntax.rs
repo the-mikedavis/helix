@@ -12,7 +12,7 @@ use std::{
 use anyhow::{anyhow, bail, Context, Result};
 use arc_swap::{ArcSwap, Guard};
 use config::{Configuration, FileType, LanguageConfiguration, LanguageServerConfiguration};
-use foldhash::HashMap;
+use foldhash::{HashMap, HashSet};
 use helix_loader::grammar;
 use helix_stdx::rope::RopeSliceExt as _;
 use once_cell::sync::OnceCell;
@@ -20,7 +20,7 @@ use ropey::RopeSlice;
 use tree_house::{
     highlighter,
     query_iter::QueryIter,
-    tree_sitter::{Grammar, InputEdit, Node, Query, Tree},
+    tree_sitter::{query::UserPredicate, Capture, Grammar, InputEdit, Node, Pattern, Query, Tree},
     Error, InjectionLanguageMarker, LanguageConfig as SyntaxConfig, LanguageLoader, Layer,
 };
 
@@ -28,6 +28,7 @@ use crate::{indent::IndentQuery, textobject::TextObjectQuery, tree_sitter, Chang
 
 pub use tree_house::{
     highlighter::{Highlight, HighlightEvent},
+    query_iter::QueryIterEvent,
     Error as HighlighterError, TreeCursor, TREE_SITTER_MATCH_LIMIT,
 };
 
@@ -37,6 +38,7 @@ pub struct LanguageData {
     syntax: OnceCell<Option<SyntaxConfig>>,
     indent_query: OnceCell<Option<IndentQuery>>,
     textobject_query: OnceCell<Option<TextObjectQuery>>,
+    rainbow_query: OnceCell<Option<RainbowQuery>>,
 }
 
 impl LanguageData {
@@ -46,6 +48,7 @@ impl LanguageData {
             syntax: OnceCell::new(),
             indent_query: OnceCell::new(),
             textobject_query: OnceCell::new(),
+            rainbow_query: OnceCell::new(),
         }
     }
 
@@ -153,6 +156,29 @@ impl LanguageData {
                         None
                     }
                 }
+            })
+            .as_ref()
+    }
+
+    fn rainbow_query(&self, loader: &Loader) -> Option<&RainbowQuery> {
+        self.rainbow_query
+            .get_or_init(|| {
+                let name = &self.config.language_id;
+                let grammar = self.syntax_config(loader)?.grammar;
+                let mut path = loader
+                    .grammar_loader
+                    .grammar_dir(name)
+                    .expect("must have a language support dir to have a syntax config");
+                path.push("rainbows.scm");
+                let text = read_query(&loader.grammar_loader, name, "rainbows.scm");
+                if text.is_empty() {
+                    return None;
+                }
+                RainbowQuery::new(grammar, &text, path)
+                    .map_err(|err| {
+                        log::error!("Failed to compile rainbows.scm queries for '{name}': {err:#}");
+                    })
+                    .ok()
             })
             .as_ref()
     }
@@ -320,6 +346,10 @@ impl Loader {
 
     pub fn textobject_query(&self, lang: Language) -> Option<&TextObjectQuery> {
         self.language(lang).textobject_query(self)
+    }
+
+    pub fn rainbow_query(&self, lang: Language) -> Option<&RainbowQuery> {
+        self.language(lang).rainbow_query(self)
     }
 
     pub fn language_server_configs(&self) -> &HashMap<String, LanguageServerConfiguration> {
@@ -850,4 +880,57 @@ fn pretty_print_tree_impl<W: fmt::Write>(
     }
 
     Ok(())
+}
+
+/// Finds the child of `node` which contains the given byte range.
+pub fn child_for_byte_range<'a>(node: &Node<'a>, range: ops::Range<u32>) -> Option<Node<'a>> {
+    for child in node.children() {
+        let child_range = child.byte_range();
+        if range.start >= child_range.start && range.end <= child_range.end {
+            return Some(child);
+        }
+    }
+
+    None
+}
+
+#[derive(Debug)]
+pub struct RainbowQuery {
+    pub query: Query,
+    /// The patterns in the query which are marked with `(#set! rainbow.include-children)`.
+    pub include_children_patterns: HashSet<Pattern>,
+    pub scope_capture: Option<Capture>,
+    pub bracket_capture: Option<Capture>,
+}
+
+impl RainbowQuery {
+    fn new(
+        grammar: Grammar,
+        source: &str,
+        path: impl AsRef<Path>,
+    ) -> Result<Self, tree_sitter::query::ParseError> {
+        let mut include_children_patterns = HashSet::default();
+        let query = Query::new(
+            grammar,
+            source,
+            path,
+            |pattern, predicate| match predicate {
+                UserPredicate::SetProperty {
+                    key: "rainbow.include-children",
+                    val: None,
+                } => {
+                    include_children_patterns.insert(pattern);
+                    Ok(())
+                }
+                _ => Err(format!("unsupported predicate {predicate}").into()),
+            },
+        )?;
+
+        Ok(Self {
+            include_children_patterns,
+            scope_capture: query.get_capture("rainbow.scope"),
+            bracket_capture: query.get_capture("rainbow.bracket"),
+            query,
+        })
+    }
 }

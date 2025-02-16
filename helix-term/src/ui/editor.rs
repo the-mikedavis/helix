@@ -128,6 +128,12 @@ impl EditorView {
             &text_annotations,
         ));
 
+        if let Some(overlay) =
+            Self::doc_rainbow_highlights(doc, view_offset.anchor, inner.height, theme, &loader)
+        {
+            overlays.push(overlay);
+        }
+
         Self::doc_diagnostics_highlights_into(doc, theme, &mut overlays);
 
         if is_focused {
@@ -287,6 +293,100 @@ impl EditorView {
 
         let highlighter = syntax.highlighter(text, loader, range);
         Some(highlighter)
+    }
+
+    pub fn doc_rainbow_highlights(
+        doc: &Document,
+        anchor: usize,
+        height: u16,
+        theme: &Theme,
+        loader: &syntax::Loader,
+    ) -> Option<OverlayHighlights> {
+        struct RainbowScope<'tree> {
+            end: u32,
+            node: Option<helix_core::tree_sitter::Node<'tree>>,
+            highlight: syntax::Highlight,
+        }
+
+        let syntax = doc.syntax()?;
+        let text = doc.text().slice(..);
+        let row = text.char_to_line(anchor.min(text.len_chars()));
+        let rainbow_length = theme.rainbow_length();
+
+        // Calculate viewport byte range
+        let last_line = text.len_lines().saturating_sub(1);
+        let last_visible_line = (row + height as usize).saturating_sub(1).min(last_line);
+        let visible_start = text.line_to_byte(row.min(last_line));
+        let visible_end = text.line_to_byte(last_visible_line + 1);
+
+        let start = syntax::child_for_byte_range(
+            &syntax.tree().root_node(),
+            visible_start as u32..visible_end as u32,
+        )
+        .map_or(visible_start as u32, |node| node.start_byte());
+        let range = start..visible_end as u32;
+
+        // This stuff should probably all be moved to the syntax module.
+        let mut scope_stack = Vec::<RainbowScope>::new();
+        let mut highlights = Vec::new();
+
+        let mut query_iter = syntax.query_iter::<_, (), _>(
+            text,
+            |lang| loader.rainbow_query(lang).map(|query| &query.query),
+            range,
+        );
+
+        while let Some(event) = query_iter.next() {
+            let syntax::QueryIterEvent::Match(mat) = event else {
+                continue;
+            };
+
+            let rainbow_query = loader
+                .rainbow_query(query_iter.current_language())
+                .expect("language must have a rainbow query to emit matches");
+
+            let byte_range = mat.node.byte_range();
+            // Pop any scopes that end before this capture begins.
+            while let Some(scope) = scope_stack.last() {
+                if byte_range.start >= scope.end {
+                    scope_stack.pop();
+                } else {
+                    break;
+                }
+            }
+
+            let capture = Some(mat.capture);
+            if capture == rainbow_query.scope_capture {
+                let scope = RainbowScope {
+                    end: byte_range.end,
+                    node: if rainbow_query
+                        .include_children_patterns
+                        .contains(&mat.pattern)
+                    {
+                        None
+                    } else {
+                        // NOTE: nodes are cheap to clone.
+                        Some(mat.node.clone())
+                    },
+                    highlight: syntax::Highlight::new((scope_stack.len() % rainbow_length) as u32),
+                };
+                scope_stack.push(scope);
+            } else if capture == rainbow_query.bracket_capture {
+                if let Some(scope) = scope_stack.last() {
+                    if !scope
+                        .node
+                        .as_ref()
+                        .is_some_and(|node| mat.node.parent().as_ref() != Some(node))
+                    {
+                        let start = text.byte_to_char(mat.node.start_byte() as usize);
+                        let end = text.byte_to_char(mat.node.end_byte() as usize);
+                        highlights.push((scope.highlight, start..end))
+                    }
+                }
+            }
+        }
+
+        Some(OverlayHighlights::Heterogenous { highlights })
     }
 
     pub fn overlay_syntax_highlights(
