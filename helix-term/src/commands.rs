@@ -625,6 +625,8 @@ impl MappableCommand {
         syntax_workspace_symbol_picker, "Open workspace symbol picker from syntax information",
         lsp_or_syntax_symbol_picker, "Open symbol picker from LSP or syntax information",
         lsp_or_syntax_workspace_symbol_picker, "Open workspace symbol picker from LSP or syntax information",
+        add_word_to_personal_dictionary, "Add the spelling mistake under the cursor to the personal dictionary",
+        suggest_spelling_correction, "Suggest corrections for the spelling mistake under the cursor",
     );
 }
 
@@ -7081,4 +7083,164 @@ fn lsp_or_syntax_workspace_symbol_picker(cx: &mut Context) {
     } else {
         syntax_workspace_symbol_picker(cx);
     }
+}
+
+// HACK: this should be folded into code actions.
+fn add_word_to_personal_dictionary(cx: &mut Context) {
+    let (view, doc) = current_ref!(cx.editor);
+    let text = doc.text().slice(..);
+    let selection = doc.selection(view.id).primary();
+    let range = if selection.len() == 1 {
+        textobject::textobject_word(text, selection, textobject::TextObject::Inside, 1, false)
+    } else {
+        selection
+    };
+    let word = range.fragment(text);
+
+    let prompt = ui::Prompt::new(
+        "add-word:".into(),
+        None,
+        ui::completers::none,
+        move |cx, input: &str, event: PromptEvent| {
+            fn append_word(word: &str) -> std::io::Result<()> {
+                use std::io::Write;
+                let path = helix_loader::personal_dictionary_file();
+                std::fs::create_dir_all(
+                    path.parent()
+                        .expect("personal dictionary file must be the state dir"),
+                )?;
+                let mut file = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)?;
+                file.write_all(word.as_bytes())?;
+                file.write_all(helix_core::NATIVE_LINE_ENDING.as_str().as_bytes())?;
+                file.sync_data()?;
+
+                Ok(())
+            }
+
+            if event != PromptEvent::Validate {
+                return;
+            }
+
+            if let Err(err) = cx.editor.dictionary.add(input) {
+                cx.editor.set_error(format!(
+                    "Failed to add \"{input}\" to the dictionary: {err}"
+                ));
+                return;
+            }
+
+            if let Err(err) = append_word(input) {
+                cx.editor.set_error(format!(
+                    "Failed to persist \"{input}\" to the on-disk dictionary: {err}"
+                ));
+                return;
+            }
+
+            cx.editor
+                .set_status(format!("Added \"{input}\" to the dictionary"));
+        },
+    )
+    .with_line(word.into(), cx.editor);
+
+    cx.push_layer(Box::new(prompt));
+}
+
+fn suggest_spelling_correction(cx: &mut Context) {
+    use helix_stdx::rope::Regex;
+    use tokio::time::Instant;
+
+    let dictionary = &cx.editor.dictionary;
+    let (view, doc) = current_ref!(cx.editor);
+    let view_id = view.id;
+    let doc_id = doc.id();
+    let text = doc.text().slice(..);
+
+    let selection = doc.selection(view.id).primary();
+    let direction = selection.direction();
+    let cursor = selection.cursor(text);
+    let line_no = selection.cursor_line(text);
+    let line = text.line(line_no);
+    let line_start = text.line_to_char(line_no);
+
+    struct Suggestion(String);
+
+    impl ui::menu::Item for Suggestion {
+        type Data = ();
+
+        fn format(&self, _data: &Self::Data) -> tui::widgets::Row {
+            self.0.as_str().into()
+        }
+    }
+
+    // This is a hack around not storing the spelling errors as diagnostics.
+    // Re-find the spelling mistake under the cursor:
+    static WORDS: Lazy<Regex> = Lazy::new(|| Regex::new(r#"[0-9A-Z]*(['-]?[a-z]+)*"#).unwrap());
+    let current_mistake = WORDS.find_iter(line.regex_input_at(..)).find_map(|match_| {
+        let start = text.byte_to_char(match_.start());
+        let end = text.byte_to_char(match_.end());
+        let word = Cow::from(line.slice(start..end));
+        let range = start + line_start..end + line_start;
+        if !dictionary.check(&word) && range.contains(&cursor) {
+            Some((word, range))
+        } else {
+            None
+        }
+    });
+
+    let Some((word, range)) = current_mistake else {
+        cx.editor
+            .set_error("No spelling mistake under the primary cursor");
+        return;
+    };
+
+    let mut suggestions = Vec::new();
+    let start_time = Instant::now();
+    dictionary.suggest(&word, &mut suggestions);
+    let end_time = Instant::now();
+    log::info!(
+        "found {} suggestion{} for '{}' in {:?}",
+        suggestions.len(),
+        if suggestions.len() == 1 { "" } else { "s" },
+        &word,
+        end_time.duration_since(start_time)
+    );
+
+    if suggestions.is_empty() {
+        cx.editor
+            .set_error(format!("No suggestions for '{}' found", &word));
+        return;
+    }
+
+    // SAFETY: `Suggestion` is a newtype wrapper so it has the same layout as the wrapped String.
+    let suggestions = unsafe { std::mem::transmute::<Vec<String>, Vec<Suggestion>>(suggestions) };
+
+    let mut menu = ui::Menu::new(suggestions, (), move |editor, action, event| {
+        if event != PromptEvent::Validate {
+            return;
+        }
+
+        // Because we `move_down` below, this is always Some:
+        let suggestion = &action.unwrap().0;
+
+        let view = view_mut!(editor, view_id);
+        let doc = doc_mut!(editor, &doc_id);
+
+        let new_range = Range::new(range.start, range.start + suggestion.chars().count())
+            .with_direction(direction);
+        let transaction = Transaction::change(
+            doc.text(),
+            [(range.start, range.end, Some(suggestion.into()))].into_iter(),
+        )
+        .with_selection(Selection::from(new_range));
+
+        doc.apply(&transaction, view_id);
+        doc.append_changes_to_history(view);
+    });
+    menu.move_down();
+
+    let popup = Popup::new("suggestion", menu).with_scrollbar(false);
+
+    cx.push_layer(Box::new(popup));
 }

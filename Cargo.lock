@@ -1567,6 +1567,7 @@ dependencies = [
  "serde",
  "serde_json",
  "slotmap",
+ "spellbook",
  "tempfile",
  "thiserror 2.0.12",
  "tokio",
@@ -2453,6 +2454,16 @@ checksum = "ce305eb0b4296696835b71df73eb912e0f1ffd2556a501fcede6e0c50349191c"
 dependencies = [
  "libc",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "spellbook"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c3e514d2d9cb3bd6862b9ac0f74864277ba99e3689644ae37bc8911ecc4bc45"
+dependencies = [
+ "foldhash",
+ "hashbrown 0.15.2",
 ]
 
 [[package]]

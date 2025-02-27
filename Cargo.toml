@@ -41,6 +41,7 @@ package.helix-term.opt-level = 2
 # tree-house = { path = "../tree-house/highlighter", default-features = false }
 tree-house = { git = "https://github.com/helix-editor/tree-house", default-features = false }
 nucleo = "0.5.0"
+spellbook = "0.3"
 slotmap = "1.0.7"
 thiserror = "2.0"
 tempfile = "3.18.0"

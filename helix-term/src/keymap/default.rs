@@ -314,6 +314,8 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "C" => toggle_block_comments,
             "A-c" => toggle_line_comments,
             "?" => command_palette,
+            "A" => add_word_to_personal_dictionary,
+            "Z" => suggest_spelling_correction,
         },
         "z" => { "View"
             "z" | "c" => align_view_center,
