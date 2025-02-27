@@ -102,6 +102,19 @@ impl Renderer<'_, '_> {
         let mut end_col = start_col;
         let mut draw_col = (col + 1) as u16;
 
+        // Draw the diagnostic indicator:
+        if !self.renderer.column_in_bounds(draw_col as usize, 2) {
+            return 0;
+        }
+        self.renderer.set_string(
+            self.renderer.viewport.x + draw_col,
+            row,
+            diag.severity().indicator(),
+            style,
+        );
+        draw_col += 2;
+
+        // Then the diagnostic message:
         for line in diag.message.lines() {
             if !self.renderer.column_in_bounds(draw_col as usize, 1) {
                 break;
