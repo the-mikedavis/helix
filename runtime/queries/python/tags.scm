@@ -1,12 +1,5 @@
-(class_definition
-  name: (identifier) @name) @definition.class
-
 (function_definition
-  name: (identifier) @name) @definition.function
+  name: (identifier) @definition.function)
 
-(call
-  function: [
-      (identifier) @name
-      (attribute
-        attribute: (identifier) @name)
-  ]) @reference.call
+(class_definition
+  name: (identifier) @definition.class)

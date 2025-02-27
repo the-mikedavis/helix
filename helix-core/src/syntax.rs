@@ -20,7 +20,7 @@ use once_cell::sync::OnceCell;
 use ropey::RopeSlice;
 use tree_house::{
     highlighter,
-    query_iter::{QueryIter, QueryIterEvent},
+    query_iter::QueryIter,
     tree_sitter::{
         query::{InvalidPredicateError, UserPredicate},
         Capture, Grammar, InactiveQueryCursor, InputEdit, Node, Pattern, Query, RopeInput, Tree,
@@ -32,6 +32,7 @@ use crate::{indent::IndentQuery, tree_sitter, ChangeSet, Language};
 
 pub use tree_house::{
     highlighter::{Highlight, HighlightEvent},
+    query_iter::QueryIterEvent,
     Error as HighlighterError, LanguageLoader, TreeCursor, TREE_SITTER_MATCH_LIMIT,
 };
 
@@ -42,6 +43,7 @@ pub struct LanguageData {
     indent_query: OnceCell<Option<IndentQuery>>,
     textobject_query: OnceCell<Option<TextObjectQuery>>,
     rainbow_query: OnceCell<Option<RainbowQuery>>,
+    tag_query: OnceCell<Option<Query>>,
 }
 
 impl LanguageData {
@@ -52,6 +54,7 @@ impl LanguageData {
             indent_query: OnceCell::new(),
             textobject_query: OnceCell::new(),
             rainbow_query: OnceCell::new(),
+            tag_query: OnceCell::new(),
         }
     }
 
@@ -181,6 +184,38 @@ impl LanguageData {
             .get_or_init(|| {
                 let grammar = self.syntax_config(loader)?.grammar;
                 Self::compile_rainbow_query(grammar, &self.config)
+                    .map_err(|err| {
+                        log::error!("{err}");
+                    })
+                    .ok()
+                    .flatten()
+            })
+            .as_ref()
+    }
+
+    /// Compiles the tags.scm query for a language.
+    /// This function should only be used by this module or the xtask crate.
+    pub fn compile_tag_query(
+        grammar: Grammar,
+        config: &LanguageConfiguration,
+    ) -> Result<Option<Query>> {
+        let name = &config.language_id;
+        let text = read_query(name, "tags.scm");
+        if text.is_empty() {
+            return Ok(None);
+        }
+        let query = Query::new(grammar, &text, |_pattern, predicate| {
+            Err(InvalidPredicateError::unknown(predicate))
+        })
+        .with_context(|| format!("Failed to compile tags.scm query for '{name}'"))?;
+        Ok(Some(query))
+    }
+
+    fn tag_query(&self, loader: &Loader) -> Option<&Query> {
+        self.tag_query
+            .get_or_init(|| {
+                let grammar = self.syntax_config(loader)?.grammar;
+                Self::compile_tag_query(grammar, &self.config)
                     .map_err(|err| {
                         log::error!("{err}");
                     })
@@ -364,6 +399,10 @@ impl Loader {
         self.language(lang).rainbow_query(self)
     }
 
+    pub fn tag_query(&self, lang: Language) -> Option<&Query> {
+        self.language(lang).tag_query(self)
+    }
+
     pub fn language_server_configs(&self) -> &HashMap<String, LanguageServerConfiguration> {
         &self.language_server_configs
     }
@@ -535,6 +574,15 @@ impl Syntax {
         Range: RangeBounds<u32>,
     {
         QueryIter::new(&self.inner, source, loader, range)
+    }
+
+    pub fn tags<'a>(
+        &'a self,
+        source: RopeSlice<'a>,
+        loader: &'a Loader,
+        range: impl RangeBounds<u32>,
+    ) -> QueryIter<'a, 'a, impl FnMut(Language) -> Option<&'a Query> + 'a, ()> {
+        self.query_iter(source, |lang| loader.tag_query(lang), range)
     }
 
     pub fn rainbow_highlights(
