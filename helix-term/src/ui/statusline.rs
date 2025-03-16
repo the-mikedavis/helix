@@ -1,8 +1,6 @@
 use helix_core::{coords_at_pos, diagnostic::Severity, encoding, Position};
-use helix_lsp::lsp::DiagnosticSeverity;
-use helix_view::document::DEFAULT_LANGUAGE_NAME;
 use helix_view::{
-    document::{Mode, SCRATCH_BUFFER_NAME},
+    document::{Mode, DEFAULT_LANGUAGE_NAME, SCRATCH_BUFFER_NAME},
     graphics::Rect,
     theme::Style,
     Document, Editor, View,
@@ -268,10 +266,10 @@ where
             .diagnostics
             .values()
             .flatten()
-            .fold((0, 0), |mut counts, (diag, _)| {
-                match diag.severity {
-                    Some(DiagnosticSeverity::WARNING) => counts.0 += 1,
-                    Some(DiagnosticSeverity::ERROR) | None => counts.1 += 1,
+            .fold((0, 0), |mut counts, diag| {
+                match diag.severity() {
+                    Some(Severity::Warning) => counts.0 += 1,
+                    Some(Severity::Error) | None => counts.1 += 1,
                     _ => {}
                 }
                 counts

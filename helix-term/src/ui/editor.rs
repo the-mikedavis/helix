@@ -142,12 +142,12 @@ impl EditorView {
 
         Self::doc_diagnostics_highlights_into(doc, theme, &mut overlays);
 
-        overlays.push(Self::doc_spell_highlights(
+        /* overlays.push(Self::doc_spell_highlights(
             &editor.dictionary,
             doc,
             view,
             theme,
-        ));
+        )); */
 
         if is_focused {
             if let Some(tabstops) = Self::tabstop_highlights(doc, theme) {

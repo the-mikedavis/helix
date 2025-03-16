@@ -1463,7 +1463,9 @@ impl Client {
         text_document: lsp::TextDocumentIdentifier,
         range: lsp::Range,
         context: lsp::CodeActionContext,
-    ) -> Option<impl Future<Output = Result<Value>>> {
+    ) -> Option<
+        impl Future<Output = Result<<lsp::request::CodeActionRequest as lsp::request::Request>::Result>>,
+    > {
         let capabilities = self.capabilities.get().unwrap();
 
         // Return early if the server does not support code actions.
@@ -1483,7 +1485,8 @@ impl Client {
             partial_result_params: lsp::PartialResultParams::default(),
         };
 
-        Some(self.call::<lsp::request::CodeActionRequest>(params))
+        let res = self.call::<lsp::request::CodeActionRequest>(params);
+        Some(async move { Ok(serde_json::from_value(res.await?)?) })
     }
 
     pub fn rename_symbol(

@@ -5,7 +5,8 @@ use crate::editor::Action;
 use crate::events::{
     DiagnosticsDidChange, DocumentDidChange, DocumentDidClose, LanguageServerInitialized,
 };
-use crate::Editor;
+use crate::{Diagnostic, Editor};
+use helix_core::diagnostic::DiagnosticProvider;
 use helix_core::Uri;
 use helix_event::register_hook;
 use helix_lsp::util::generate_transaction_from_edits;
@@ -65,6 +66,21 @@ impl Display for ApplyEditErrorKind {
 }
 
 impl Editor {
+    pub fn execute_lsp_command(&mut self, command: lsp::Command, server_id: LanguageServerId) {
+        let Some(future) = self
+            .language_server_by_id(server_id)
+            .and_then(|server| server.command(command))
+        else {
+            self.set_error("Language server does not support executing commands");
+            return;
+        };
+        tokio::spawn(async move {
+            if let Err(err) = future.await {
+                log::error!("Error executing LSP command: {err}");
+            }
+        });
+    }
+
     fn apply_text_edits(
         &mut self,
         url: &helix_lsp::Url,
@@ -277,12 +293,12 @@ impl Editor {
         Ok(())
     }
 
-    pub fn handle_lsp_diagnostics(
+    pub fn handle_diagnostics(
         &mut self,
-        server_id: LanguageServerId,
+        provider: DiagnosticProvider,
         uri: Uri,
         version: Option<i32>,
-        mut diagnostics: Vec<lsp::Diagnostic>,
+        diagnostics: impl IntoIterator<Item = Diagnostic>,
     ) {
         let doc = self
             .documents
@@ -296,33 +312,26 @@ impl Editor {
             }
         }
 
+        let mut diagnostics: Vec<_> = diagnostics.into_iter().collect();
+
         let mut unchanged_diag_sources = Vec::new();
         if let Some((lang_conf, old_diagnostics)) = doc
             .as_ref()
             .and_then(|doc| Some((doc.language_config()?, self.diagnostics.get(&uri)?)))
         {
             if !lang_conf.persistent_diagnostic_sources.is_empty() {
-                // Sort diagnostics first by severity and then by line numbers.
-                // Note: The `lsp::DiagnosticSeverity` enum is already defined in decreasing order
-                diagnostics.sort_by_key(|d| (d.severity, d.range.start));
+                diagnostics.sort();
             }
             for source in &lang_conf.persistent_diagnostic_sources {
-                let new_diagnostics = diagnostics
-                    .iter()
-                    .filter(|d| d.source.as_ref() == Some(source));
+                let new_diagnostics = diagnostics.iter().filter(|d| d.source() == Some(source));
                 let old_diagnostics = old_diagnostics
                     .iter()
-                    .filter(|(d, d_server)| {
-                        *d_server == server_id && d.source.as_ref() == Some(source)
-                    })
-                    .map(|(d, _)| d);
+                    .filter(|d| d.is_provider(provider) && d.source() == Some(source));
                 if new_diagnostics.eq(old_diagnostics) {
                     unchanged_diag_sources.push(source.clone())
                 }
             }
         }
-
-        let diagnostics = diagnostics.into_iter().map(|d| (d, server_id));
 
         // Insert the original lsp::Diagnostics here because we may have no open document
         // for diagnostic message and so we can't calculate the exact position.
@@ -331,26 +340,24 @@ impl Editor {
             Entry::Occupied(o) => {
                 let current_diagnostics = o.into_mut();
                 // there may entries of other language servers, which is why we can't overwrite the whole entry
-                current_diagnostics.retain(|(_, lsp_id)| *lsp_id != server_id);
+                current_diagnostics.retain(|diagnostic| !diagnostic.is_provider(provider));
                 current_diagnostics.extend(diagnostics);
                 current_diagnostics
                 // Sort diagnostics first by severity and then by line numbers.
             }
-            Entry::Vacant(v) => v.insert(diagnostics.collect()),
+            Entry::Vacant(v) => v.insert(diagnostics),
         };
 
-        // Sort diagnostics first by severity and then by line numbers.
-        // Note: The `lsp::DiagnosticSeverity` enum is already defined in decreasing order
-        diagnostics.sort_by_key(|(d, server_id)| (d.severity, d.range.start, *server_id));
+        // See `Ord for Diagnostic`
+        diagnostics.sort();
 
         if let Some(doc) = doc {
             let diagnostic_of_language_server_and_not_in_unchanged_sources =
-                |diagnostic: &lsp::Diagnostic, ls_id| {
-                    ls_id == server_id
-                        && diagnostic
-                            .source
-                            .as_ref()
-                            .map_or(true, |source| !unchanged_diag_sources.contains(source))
+                |diagnostic: &Diagnostic| {
+                    diagnostic.is_provider(provider)
+                        && diagnostic.source().map_or(true, |source| {
+                            !unchanged_diag_sources.iter().any(|s| s == source)
+                        })
                 };
             let diagnostics = Self::doc_diagnostics_with_filter(
                 &self.language_servers,
@@ -358,7 +365,7 @@ impl Editor {
                 doc,
                 diagnostic_of_language_server_and_not_in_unchanged_sources,
             );
-            doc.replace_diagnostics(diagnostics, &unchanged_diag_sources, Some(server_id));
+            doc.replace_diagnostics(diagnostics, &unchanged_diag_sources, Some(provider));
 
             let doc = doc.id();
             helix_event::dispatch(DiagnosticsDidChange { editor: self, doc });

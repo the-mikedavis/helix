@@ -70,6 +70,31 @@ pub mod util {
     use helix_core::{chars, RopeSlice};
     use helix_core::{diagnostic::NumberOrString, Range, Rope, Selection, Tendril, Transaction};
 
+    pub fn lsp_severity_to_severity(
+        severity: lsp::DiagnosticSeverity,
+    ) -> Option<helix_core::diagnostic::Severity> {
+        use helix_core::diagnostic::Severity::*;
+        match severity {
+            lsp::DiagnosticSeverity::ERROR => Some(Error),
+            lsp::DiagnosticSeverity::WARNING => Some(Warning),
+            lsp::DiagnosticSeverity::INFORMATION => Some(Info),
+            lsp::DiagnosticSeverity::HINT => Some(Hint),
+            _ => None,
+        }
+    }
+
+    pub fn severity_to_lsp_severity(
+        severity: helix_core::diagnostic::Severity,
+    ) -> lsp::DiagnosticSeverity {
+        use helix_core::diagnostic::Severity::*;
+        match severity {
+            Hint => lsp::DiagnosticSeverity::HINT,
+            Info => lsp::DiagnosticSeverity::INFORMATION,
+            Warning => lsp::DiagnosticSeverity::WARNING,
+            Error => lsp::DiagnosticSeverity::ERROR,
+        }
+    }
+
     /// Converts a diagnostic in the document to [`lsp::Diagnostic`].
     ///
     /// Panics when [`pos_to_lsp_pos`] would for an invalid range on the diagnostic.
@@ -78,15 +103,8 @@ pub mod util {
         diag: &helix_core::diagnostic::Diagnostic,
         offset_encoding: OffsetEncoding,
     ) -> lsp::Diagnostic {
-        use helix_core::diagnostic::Severity::*;
-
         let range = Range::new(diag.range.start, diag.range.end);
-        let severity = diag.severity.map(|s| match s {
-            Hint => lsp::DiagnosticSeverity::HINT,
-            Info => lsp::DiagnosticSeverity::INFORMATION,
-            Warning => lsp::DiagnosticSeverity::WARNING,
-            Error => lsp::DiagnosticSeverity::ERROR,
-        });
+        let severity = diag.severity.map(severity_to_lsp_severity);
 
         let code = match diag.code.clone() {
             Some(x) => match x {

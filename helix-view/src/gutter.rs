@@ -69,9 +69,10 @@ pub fn diagnostic<'doc>(
                 .iter()
                 .take_while(|d| {
                     d.line == line
-                        && doc
-                            .language_servers_with_feature(LanguageServerFeature::Diagnostics)
-                            .any(|ls| ls.id() == d.provider)
+                        && d.provider.language_server_id().map_or(true, |ls_id| {
+                            doc.language_servers_with_feature(LanguageServerFeature::Diagnostics)
+                                .any(|ls| ls.id() == ls_id)
+                        })
                 });
             diagnostics_on_line.max_by_key(|d| d.severity).map(|d| {
                 let severity = d.severity();

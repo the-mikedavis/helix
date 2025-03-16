@@ -37,15 +37,16 @@ pub enum NumberOrString {
     String(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagnosticTag {
     Unnecessary,
     Deprecated,
 }
 
 /// Corresponds to [`lsp_types::Diagnostic`](https://docs.rs/lsp-types/0.94.0/lsp_types/struct.Diagnostic.html)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
+    /// Character indices for which the diagnostic applies.
     pub range: Range,
     // whether this diagnostic ends at the end of(or inside) a word
     pub ends_at_word: bool,
@@ -61,8 +62,20 @@ pub struct Diagnostic {
     pub data: Option<serde_json::Value>,
 }
 
-// TODO turn this into an enum + feature flag when lsp becomes optional
-pub type DiagnosticProvider = LanguageServerId;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DiagnosticProvider {
+    Lsp(LanguageServerId),
+    Spelling,
+}
+
+impl DiagnosticProvider {
+    pub fn language_server_id(&self) -> Option<LanguageServerId> {
+        match self {
+            Self::Lsp(id) => Some(*id),
+            _ => None,
+        }
+    }
+}
 
 // while I would prefer having this in helix-lsp that necessitates a bunch of
 // conversions I would rather not add. I think its fine since this just a very

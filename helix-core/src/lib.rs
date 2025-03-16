@@ -74,3 +74,26 @@ pub use transaction::{Assoc, Change, ChangeSet, Deletion, Operation, Transaction
 pub use uri::Uri;
 
 pub use tree_house::Language;
+
+/// A language to use for spell checking.
+///
+/// This is defined in the form `"ab_CD"` where `a`, `b`, `C` and `D` are all ASCII alphanumeric.
+/// The first two letters declare the ISO 639 language code and the later two declare the
+/// territory identifier. The territory identifier is optional, so a language may just be `"ab"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SpellingLanguage([u8; 5]);
+
+impl SpellingLanguage {
+    pub const EN_US: Self = Self(*b"en_US");
+
+    pub fn as_str(&self) -> &str {
+        // SAFETY: `.0` is all ASCII bytes which is valid UTF-8.
+        unsafe { std::str::from_utf8_unchecked(&self.0) }
+    }
+}
+
+impl std::fmt::Display for SpellingLanguage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}

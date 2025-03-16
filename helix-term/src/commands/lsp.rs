@@ -1,11 +1,8 @@
 use futures_util::{stream::FuturesOrdered, FutureExt};
 use helix_lsp::{
     block_on,
-    lsp::{
-        self, CodeAction, CodeActionOrCommand, CodeActionTriggerKind, DiagnosticSeverity,
-        NumberOrString,
-    },
-    util::{diagnostic_to_lsp_diagnostic, lsp_range_to_range, range_to_lsp_range},
+    lsp::{self, DiagnosticSeverity, NumberOrString},
+    util::lsp_range_to_range,
     Client, LanguageServerId, OffsetEncoding,
 };
 use tokio_stream::StreamExt;
@@ -22,7 +19,7 @@ use helix_view::{
     editor::Action,
     handlers::lsp::SignatureHelpInvoked,
     theme::Style,
-    Document, View,
+    CodeAction, Diagnostic, Document, View,
 };
 
 use crate::{
@@ -31,13 +28,7 @@ use crate::{
     ui::{self, overlay::overlaid, FileLocation, Picker, Popup, PromptEvent},
 };
 
-use std::{
-    cmp::Ordering,
-    collections::{BTreeMap, HashSet},
-    fmt::Display,
-    future::Future,
-    path::Path,
-};
+use std::{collections::HashSet, fmt::Display, future::Future, path::Path};
 
 /// Gets the first language server that is attached to a document which supports a specific feature.
 /// If there is no configured language server that supports the feature, this displays a status message.
@@ -207,9 +198,9 @@ enum DiagnosticsFormat {
 
 type DiagnosticsPicker = Picker<PickerDiagnostic, DiagnosticStyles>;
 
-fn diag_picker(
+fn diag_picker<I: IntoIterator<Item = (Uri, Vec<Diagnostic>)>>(
     cx: &Context,
-    diagnostics: BTreeMap<Uri, Vec<(lsp::Diagnostic, LanguageServerId)>>,
+    diagnostics: I,
     format: DiagnosticsFormat,
 ) -> DiagnosticsPicker {
     // TODO: drop current_path comparison and instead use workspace: bool flag?
@@ -219,16 +210,19 @@ fn diag_picker(
     for (uri, diags) in diagnostics {
         flat_diag.reserve(diags.len());
 
-        for (diag, ls) in diags {
-            if let Some(ls) = cx.editor.language_server_by_id(ls) {
-                flat_diag.push(PickerDiagnostic {
-                    location: Location {
-                        uri: uri.clone(),
-                        range: diag.range,
-                        offset_encoding: ls.offset_encoding(),
-                    },
-                    diag,
-                });
+        for diag in diags {
+            // TODO: support showing other diagnostics.
+            if let Diagnostic::Lsp { inner, server_id } = diag {
+                if let Some(ls) = cx.editor.language_server_by_id(server_id) {
+                    flat_diag.push(PickerDiagnostic {
+                        location: Location {
+                            uri: uri.clone(),
+                            range: inner.range,
+                            offset_encoding: ls.offset_encoding(),
+                        },
+                        diag: inner,
+                    });
+                }
             }
         }
     }
@@ -555,11 +549,7 @@ pub fn diagnostics_picker(cx: &mut Context) {
     let doc = doc!(cx.editor);
     if let Some(uri) = doc.uri() {
         let diagnostics = cx.editor.diagnostics.get(&uri).cloned().unwrap_or_default();
-        let picker = diag_picker(
-            cx,
-            [(uri, diagnostics)].into(),
-            DiagnosticsFormat::HideSourcePath,
-        );
+        let picker = diag_picker(cx, [(uri, diagnostics)], DiagnosticsFormat::HideSourcePath);
         cx.push_layer(Box::new(overlaid(picker)));
     }
 }
@@ -571,185 +561,21 @@ pub fn workspace_diagnostics_picker(cx: &mut Context) {
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
-struct CodeActionOrCommandItem {
-    lsp_item: lsp::CodeActionOrCommand,
-    language_server_id: LanguageServerId,
-}
-
-impl ui::menu::Item for CodeActionOrCommandItem {
-    type Data = ();
-    fn format(&self, _data: &Self::Data) -> Row {
-        match &self.lsp_item {
-            lsp::CodeActionOrCommand::CodeAction(action) => action.title.as_str().into(),
-            lsp::CodeActionOrCommand::Command(command) => command.title.as_str().into(),
-        }
-    }
-}
-
-/// Determines the category of the `CodeAction` using the `CodeAction::kind` field.
-/// Returns a number that represent these categories.
-/// Categories with a lower number should be displayed first.
-///
-///
-/// While the `kind` field is defined as open ended in the LSP spec (any value may be used)
-/// in practice a closed set of common values (mostly suggested in the LSP spec) are used.
-/// VSCode displays each of these categories separately (separated by a heading in the codeactions picker)
-/// to make them easier to navigate. Helix does not display these  headings to the user.
-/// However it does sort code actions by their categories to achieve the same order as the VScode picker,
-/// just without the headings.
-///
-/// The order used here is modeled after the [vscode sourcecode](https://github.com/microsoft/vscode/blob/eaec601dd69aeb4abb63b9601a6f44308c8d8c6e/src/vs/editor/contrib/codeAction/browser/codeActionWidget.ts>)
-fn action_category(action: &CodeActionOrCommand) -> u32 {
-    if let CodeActionOrCommand::CodeAction(CodeAction {
-        kind: Some(kind), ..
-    }) = action
-    {
-        let mut components = kind.as_str().split('.');
-        match components.next() {
-            Some("quickfix") => 0,
-            Some("refactor") => match components.next() {
-                Some("extract") => 1,
-                Some("inline") => 2,
-                Some("rewrite") => 3,
-                Some("move") => 4,
-                Some("surround") => 5,
-                _ => 7,
-            },
-            Some("source") => 6,
-            _ => 7,
-        }
-    } else {
-        7
-    }
-}
-
-fn action_preferred(action: &CodeActionOrCommand) -> bool {
-    matches!(
-        action,
-        CodeActionOrCommand::CodeAction(CodeAction {
-            is_preferred: Some(true),
-            ..
-        })
-    )
-}
-
-fn action_fixes_diagnostics(action: &CodeActionOrCommand) -> bool {
-    matches!(
-        action,
-        CodeActionOrCommand::CodeAction(CodeAction {
-            diagnostics: Some(diagnostics),
-            ..
-        }) if !diagnostics.is_empty()
-    )
-}
-
 pub fn code_action(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-
-    let selection_range = doc.selection(view.id).primary();
-
-    let mut seen_language_servers = HashSet::new();
-
-    let mut futures: FuturesOrdered<_> = doc
-        .language_servers_with_feature(LanguageServerFeature::CodeAction)
-        .filter(|ls| seen_language_servers.insert(ls.id()))
-        // TODO this should probably already been filtered in something like "language_servers_with_feature"
-        .filter_map(|language_server| {
-            let offset_encoding = language_server.offset_encoding();
-            let language_server_id = language_server.id();
-            let range = range_to_lsp_range(doc.text(), selection_range, offset_encoding);
-            // Filter and convert overlapping diagnostics
-            let code_action_context = lsp::CodeActionContext {
-                diagnostics: doc
-                    .diagnostics()
-                    .iter()
-                    .filter(|&diag| {
-                        selection_range
-                            .overlaps(&helix_core::Range::new(diag.range.start, diag.range.end))
-                    })
-                    .map(|diag| diagnostic_to_lsp_diagnostic(doc.text(), diag, offset_encoding))
-                    .collect(),
-                only: None,
-                trigger_kind: Some(CodeActionTriggerKind::INVOKED),
-            };
-            let code_action_request =
-                language_server.code_actions(doc.identifier(), range, code_action_context)?;
-            Some((code_action_request, language_server_id))
-        })
-        .map(|(request, ls_id)| async move {
-            let json = request.await?;
-            let response: Option<lsp::CodeActionResponse> = serde_json::from_value(json)?;
-            let mut actions = match response {
-                Some(a) => a,
-                None => return anyhow::Ok(Vec::new()),
-            };
-
-            // remove disabled code actions
-            actions.retain(|action| {
-                matches!(
-                    action,
-                    CodeActionOrCommand::Command(_)
-                        | CodeActionOrCommand::CodeAction(CodeAction { disabled: None, .. })
-                )
-            });
-
-            // Sort codeactions into a useful order. This behaviour is only partially described in the LSP spec.
-            // Many details are modeled after vscode because language servers are usually tested against it.
-            // VScode sorts the codeaction two times:
-            //
-            // First the codeactions that fix some diagnostics are moved to the front.
-            // If both codeactions fix some diagnostics (or both fix none) the codeaction
-            // that is marked with `is_preferred` is shown first. The codeactions are then shown in separate
-            // submenus that only contain a certain category (see `action_category`) of actions.
-            //
-            // Below this done in in a single sorting step
-            actions.sort_by(|action1, action2| {
-                // sort actions by category
-                let order = action_category(action1).cmp(&action_category(action2));
-                if order != Ordering::Equal {
-                    return order;
-                }
-                // within the categories sort by relevancy.
-                // Modeled after the `codeActionsComparator` function in vscode:
-                // https://github.com/microsoft/vscode/blob/eaec601dd69aeb4abb63b9601a6f44308c8d8c6e/src/vs/editor/contrib/codeAction/browser/codeAction.ts
-
-                // if one code action fixes a diagnostic but the other one doesn't show it first
-                let order = action_fixes_diagnostics(action1)
-                    .cmp(&action_fixes_diagnostics(action2))
-                    .reverse();
-                if order != Ordering::Equal {
-                    return order;
-                }
-
-                // if one of the codeactions is marked as preferred show it first
-                // otherwise keep the original LSP sorting
-                action_preferred(action1)
-                    .cmp(&action_preferred(action2))
-                    .reverse()
-            });
-
-            Ok(actions
-                .into_iter()
-                .map(|lsp_item| CodeActionOrCommandItem {
-                    lsp_item,
-                    language_server_id: ls_id,
-                })
-                .collect())
-        })
-        .collect();
-
-    if futures.is_empty() {
-        cx.editor
-            .set_error("No configured language server supports code actions");
-        return;
+    impl ui::menu::Item for CodeAction {
+        type Data = ();
+        fn format(&self, _data: &Self::Data) -> Row {
+            self.help_text().into()
+        }
     }
+
+    let Some(actions) = helix_view::code_action::find_under_primary_selection(cx.editor) else {
+        cx.editor.set_error("No code actions available");
+        return;
+    };
 
     cx.jobs.callback(async move {
-        let mut actions = Vec::new();
-        // TODO if one code action request errors, all other requests are ignored (even if they're valid)
-        while let Some(mut lsp_items) = futures.try_next().await? {
-            actions.append(&mut lsp_items);
-        }
+        let actions = actions.await;
 
         let call = move |editor: &mut Editor, compositor: &mut Compositor| {
             if actions.is_empty() {
@@ -763,49 +589,7 @@ pub fn code_action(cx: &mut Context) {
 
                 // always present here
                 let action = action.unwrap();
-                let Some(language_server) = editor.language_server_by_id(action.language_server_id)
-                else {
-                    editor.set_error("Language Server disappeared");
-                    return;
-                };
-                let offset_encoding = language_server.offset_encoding();
-
-                match &action.lsp_item {
-                    lsp::CodeActionOrCommand::Command(command) => {
-                        log::debug!("code action command: {:?}", command);
-                        execute_lsp_command(editor, action.language_server_id, command.clone());
-                    }
-                    lsp::CodeActionOrCommand::CodeAction(code_action) => {
-                        log::debug!("code action: {:?}", code_action);
-                        // we support lsp "codeAction/resolve" for `edit` and `command` fields
-                        let mut resolved_code_action = None;
-                        if code_action.edit.is_none() || code_action.command.is_none() {
-                            if let Some(future) =
-                                language_server.resolve_code_action(code_action.clone())
-                            {
-                                if let Ok(response) = helix_lsp::block_on(future) {
-                                    if let Ok(code_action) =
-                                        serde_json::from_value::<CodeAction>(response)
-                                    {
-                                        resolved_code_action = Some(code_action);
-                                    }
-                                }
-                            }
-                        }
-                        let resolved_code_action =
-                            resolved_code_action.as_ref().unwrap_or(code_action);
-
-                        if let Some(ref workspace_edit) = resolved_code_action.edit {
-                            let _ = editor.apply_workspace_edit(offset_encoding, workspace_edit);
-                        }
-
-                        // if code action provides both edit and command first the edit
-                        // should be applied and then the command
-                        if let Some(command) = &code_action.command {
-                            execute_lsp_command(editor, action.language_server_id, command.clone());
-                        }
-                    }
-                }
+                action.execute(editor);
             });
             picker.move_down(); // pre-select the first item
 
@@ -816,33 +600,6 @@ pub fn code_action(cx: &mut Context) {
         };
 
         Ok(Callback::EditorCompositor(Box::new(call)))
-    });
-}
-
-pub fn execute_lsp_command(
-    editor: &mut Editor,
-    language_server_id: LanguageServerId,
-    cmd: lsp::Command,
-) {
-    // the command is executed on the server and communicated back
-    // to the client asynchronously using workspace edits
-    let future = match editor
-        .language_server_by_id(language_server_id)
-        .and_then(|language_server| language_server.command(cmd))
-    {
-        Some(future) => future,
-        None => {
-            editor.set_error("Language server does not support executing commands");
-            return;
-        }
-    };
-
-    tokio::spawn(async move {
-        let res = future.await;
-
-        if let Err(e) = res {
-            log::error!("execute LSP command: {}", e);
-        }
     });
 }
 

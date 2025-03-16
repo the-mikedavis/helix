@@ -7,6 +7,7 @@ use crate::job::{Job, RequireRender};
 use super::*;
 
 use helix_core::command_line::{Args, Flag, Signature, Token, TokenKind};
+use helix_core::diagnostic::DiagnosticProvider::Lsp;
 use helix_core::fuzzy::fuzzy_match;
 use helix_core::indent::MAX_INDENT;
 use helix_core::line_ending;
@@ -1457,7 +1458,7 @@ fn lsp_workspace_command(
                         commands,
                         (),
                         move |cx, (ls_id, command), _action| {
-                            execute_lsp_command(cx.editor, *ls_id, command.clone());
+                            cx.editor.execute_lsp_command(command.clone(), *ls_id);
                         },
                     );
                     compositor.push(Box::new(overlaid(picker)));
@@ -1486,14 +1487,13 @@ fn lsp_workspace_command(
                     .transpose()?
                     .filter(|args| !args.is_empty());
 
-                execute_lsp_command(
-                    cx.editor,
-                    *ls_id,
+                cx.editor.execute_lsp_command(
                     helix_lsp::lsp::Command {
                         title: command.clone(),
                         arguments,
                         command,
                     },
+                    *ls_id,
                 );
             }
             [] => {
@@ -1625,7 +1625,7 @@ fn lsp_stop(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> any
 
         for doc in cx.editor.documents_mut() {
             if let Some(client) = doc.remove_language_server_by_name(ls_name) {
-                doc.clear_diagnostics(Some(client.id()));
+                doc.clear_diagnostics(Some(Lsp(client.id())));
                 doc.reset_all_inlay_hints();
                 doc.inlay_hints_oudated = true;
             }

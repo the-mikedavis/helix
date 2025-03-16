@@ -625,8 +625,8 @@ impl MappableCommand {
         syntax_workspace_symbol_picker, "Open workspace symbol picker from syntax information",
         lsp_or_syntax_symbol_picker, "Open symbol picker from LSP or syntax information",
         lsp_or_syntax_workspace_symbol_picker, "Open workspace symbol picker from LSP or syntax information",
-        add_word_to_personal_dictionary, "Add the spelling mistake under the cursor to the personal dictionary",
-        suggest_spelling_correction, "Suggest corrections for the spelling mistake under the cursor",
+        /* add_word_to_personal_dictionary, "Add the spelling mistake under the cursor to the personal dictionary",
+        suggest_spelling_correction, "Suggest corrections for the spelling mistake under the cursor", */
     );
 }
 
@@ -7085,6 +7085,7 @@ fn lsp_or_syntax_workspace_symbol_picker(cx: &mut Context) {
     }
 }
 
+/*
 // HACK: this should be folded into code actions.
 fn add_word_to_personal_dictionary(cx: &mut Context) {
     let (view, doc) = current_ref!(cx.editor);
@@ -7244,3 +7245,4 @@ fn suggest_spelling_correction(cx: &mut Context) {
 
     cx.push_layer(Box::new(popup));
 }
+*/

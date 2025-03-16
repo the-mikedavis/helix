@@ -5,6 +5,7 @@ use futures_util::future::BoxFuture;
 use futures_util::FutureExt;
 use helix_core::auto_pairs::AutoPairs;
 use helix_core::chars::char_is_word;
+use helix_core::diagnostic::DiagnosticProvider;
 use helix_core::doc_formatter::TextFormat;
 use helix_core::encoding::Encoding;
 use helix_core::snippets::{ActiveSnippet, SnippetRenderCtx};
@@ -1813,6 +1814,11 @@ impl Document {
         self.syntax.as_ref()
     }
 
+    // TODO: support multiple languages for a single document?
+    pub fn spelling_language(&self) -> Option<helix_core::SpellingLanguage> {
+        Some(helix_core::SpellingLanguage::EN_US)
+    }
+
     /// The width that the tab character is rendered at
     pub fn tab_width(&self) -> usize {
         self.language_config()
@@ -1923,6 +1929,9 @@ impl Document {
         )
     }
 
+    // This is a weird method. Translation should probably be done somewhere else (like
+    // in `helix-lsp/src/lib.rs` where lsp_pos_to_pos is already.). The part where we pass in
+    // language configuration seems unnecessary - that should be handled by whatever calls this.
     pub fn lsp_diagnostic_to_diagnostic(
         text: &Rope,
         language_config: Option<&LanguageConfiguration>,
@@ -2007,7 +2016,7 @@ impl Document {
             tags,
             source: diagnostic.source.clone(),
             data: diagnostic.data.clone(),
-            provider: language_server_id,
+            provider: DiagnosticProvider::Lsp(language_server_id),
         })
     }
 
@@ -2016,17 +2025,18 @@ impl Document {
         &self.diagnostics
     }
 
+    // TODO: consider how to make this generic.
     pub fn replace_diagnostics(
         &mut self,
         diagnostics: impl IntoIterator<Item = Diagnostic>,
         unchanged_sources: &[String],
-        language_server_id: Option<LanguageServerId>,
+        provider: Option<DiagnosticProvider>,
     ) {
         if unchanged_sources.is_empty() {
-            self.clear_diagnostics(language_server_id);
+            self.clear_diagnostics(provider);
         } else {
             self.diagnostics.retain(|d| {
-                if language_server_id.is_some_and(|id| id != d.provider) {
+                if provider.is_some_and(|provider| provider != d.provider) {
                     return true;
                 }
 
@@ -2043,9 +2053,9 @@ impl Document {
     }
 
     /// clears diagnostics for a given language server id if set, otherwise all diagnostics are cleared
-    pub fn clear_diagnostics(&mut self, language_server_id: Option<LanguageServerId>) {
-        if let Some(id) = language_server_id {
-            self.diagnostics.retain(|d| d.provider != id);
+    pub fn clear_diagnostics(&mut self, provider: Option<DiagnosticProvider>) {
+        if let Some(provider) = provider {
+            self.diagnostics.retain(|d| d.provider != provider);
         } else {
             self.diagnostics.clear();
         }

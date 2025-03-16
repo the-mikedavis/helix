@@ -12,7 +12,7 @@ use crate::{
     register::Registers,
     theme::{self, Theme},
     tree::{self, Tree},
-    Dictionary, Document, DocumentId, View, ViewId,
+    Diagnostic, Dictionary, Document, DocumentId, View, ViewId,
 };
 use dap::StackFrame;
 use helix_event::dispatch;
@@ -21,6 +21,7 @@ use helix_vcs::DiffProviderRegistry;
 use futures_util::stream::select_all::SelectAll;
 use futures_util::{future, StreamExt};
 use helix_lsp::{Call, LanguageServerId};
+use parking_lot::RwLock;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use std::{
@@ -52,7 +53,6 @@ use helix_core::{
     Change, LineEnding, Position, Range, Selection, Uri, NATIVE_LINE_ENDING,
 };
 use helix_dap as dap;
-use helix_lsp::lsp;
 use helix_stdx::path::canonicalize;
 
 use serde::{ser::SerializeMap, Deserialize, Deserializer, Serialize, Serializer};
@@ -1044,6 +1044,16 @@ pub struct Breakpoint {
 
 use futures_util::stream::{Flatten, Once};
 
+// TODO: can be shared with syntax symbol pickers.
+// NOTE: Uri is cheap to clone and DocumentId is Copy
+#[derive(Debug, Clone)]
+pub enum UriOrDocumentId {
+    Uri(Uri),
+    Id(DocumentId),
+}
+
+type Diagnostics = BTreeMap<Uri, Vec<Diagnostic>>;
+
 pub struct Editor {
     /// Current editing mode.
     pub mode: Mode,
@@ -1063,7 +1073,7 @@ pub struct Editor {
     pub macro_recording: Option<(char, Vec<KeyEvent>)>,
     pub macro_replaying: Vec<char>,
     pub language_servers: helix_lsp::Registry,
-    pub diagnostics: BTreeMap<Uri, Vec<(lsp::Diagnostic, LanguageServerId)>>,
+    pub diagnostics: Diagnostics,
     pub diff_providers: DiffProviderRegistry,
 
     pub debugger: Option<dap::Client>,
@@ -1116,8 +1126,7 @@ pub struct Editor {
 
     pub mouse_down_range: Option<Range>,
     pub cursor_cache: CursorCache,
-    // HACK
-    pub dictionary: Dictionary,
+    pub dictionaries: HashMap<helix_core::SpellingLanguage, Arc<RwLock<Dictionary>>>,
 }
 
 pub type Motion = Box<dyn Fn(&mut Editor)>;
@@ -1198,30 +1207,6 @@ impl Editor {
         // HAXX: offset the render area height by 1 to account for prompt/commandline
         area.height -= 1;
 
-        // HACK: what's the right interface for Spellbook to expose so we don't have to
-        // read these entire files into strings? (See associated TODO in Spellbook.)
-        let aff =
-            std::fs::read_to_string(helix_loader::runtime_file("dictionaries/en_US/en_US.aff"))
-                .unwrap();
-        let dic =
-            std::fs::read_to_string(helix_loader::runtime_file("dictionaries/en_US/en_US.dic"))
-                .unwrap();
-
-        // HACK: All this stuff should happen off the main thread.
-        let mut dictionary = Dictionary::new(&aff, &dic).unwrap();
-        if let Ok(file) = std::fs::File::open(helix_loader::personal_dictionary_file()) {
-            use std::io::{BufRead as _, BufReader};
-            let reader = BufReader::with_capacity(8 * 1024, file);
-            for line in reader.lines() {
-                let line = line.unwrap();
-                let line = line.trim();
-                if line.is_empty() {
-                    continue;
-                }
-                dictionary.add(line).unwrap();
-            }
-        }
-
         Self {
             mode: Mode::Normal,
             tree: Tree::new(area),
@@ -1264,7 +1249,7 @@ impl Editor {
             handlers,
             mouse_down_range: None,
             cursor_cache: CursorCache::default(),
-            dictionary,
+            dictionaries: HashMap::new(),
         }
     }
 
@@ -2047,19 +2032,19 @@ impl Editor {
     /// Returns all supported diagnostics for the document
     pub fn doc_diagnostics<'a>(
         language_servers: &'a helix_lsp::Registry,
-        diagnostics: &'a BTreeMap<Uri, Vec<(lsp::Diagnostic, LanguageServerId)>>,
+        diagnostics: &'a Diagnostics,
         document: &Document,
     ) -> impl Iterator<Item = helix_core::Diagnostic> + 'a {
-        Editor::doc_diagnostics_with_filter(language_servers, diagnostics, document, |_, _| true)
+        Editor::doc_diagnostics_with_filter(language_servers, diagnostics, document, |_| true)
     }
 
     /// Returns all supported diagnostics for the document
     /// filtered by `filter` which is invocated with the raw `lsp::Diagnostic` and the language server id it came from
     pub fn doc_diagnostics_with_filter<'a>(
         language_servers: &'a helix_lsp::Registry,
-        diagnostics: &'a BTreeMap<Uri, Vec<(lsp::Diagnostic, LanguageServerId)>>,
+        diagnostics: &'a Diagnostics,
         document: &Document,
-        filter: impl Fn(&lsp::Diagnostic, LanguageServerId) -> bool + 'a,
+        filter: impl Fn(&'a Diagnostic) -> bool + 'a,
     ) -> impl Iterator<Item = helix_core::Diagnostic> + 'a {
         let text = document.text().clone();
         let language_config = document.language.clone();
@@ -2067,30 +2052,31 @@ impl Editor {
             .uri()
             .and_then(|uri| diagnostics.get(&uri))
             .map(|diags| {
-                diags.iter().filter_map(move |(diagnostic, lsp_id)| {
-                    let ls = language_servers.get_by_id(*lsp_id)?;
-                    language_config
-                        .as_ref()
-                        .and_then(|c| {
-                            c.language_servers.iter().find(|features| {
-                                features.name == ls.name()
-                                    && features.has_feature(LanguageServerFeature::Diagnostics)
-                            })
-                        })
-                        .and_then(|_| {
-                            if filter(diagnostic, *lsp_id) {
-                                Document::lsp_diagnostic_to_diagnostic(
-                                    &text,
-                                    language_config.as_deref(),
-                                    diagnostic,
-                                    *lsp_id,
-                                    ls.offset_encoding(),
-                                )
-                            } else {
-                                None
+                diags
+                    .iter()
+                    .filter(move |diagnostic| filter(diagnostic))
+                    .filter_map(move |diagnostic| match diagnostic {
+                        Diagnostic::Core(inner) => Some(inner.clone()),
+                        Diagnostic::Lsp { inner, server_id } => {
+                            let ls = language_servers.get_by_id(*server_id)?;
+                            let is_diag_enabled = language_config.as_ref().map_or(true, |c| {
+                                c.language_servers.iter().any(|server| {
+                                    server.name == ls.name()
+                                        && server.has_feature(LanguageServerFeature::Diagnostics)
+                                })
+                            });
+                            if !is_diag_enabled {
+                                return None;
                             }
-                        })
-                })
+                            Document::lsp_diagnostic_to_diagnostic(
+                                &text,
+                                language_config.as_deref(),
+                                inner,
+                                *server_id,
+                                ls.offset_encoding(),
+                            )
+                        }
+                    })
             })
             .into_iter()
             .flatten()
