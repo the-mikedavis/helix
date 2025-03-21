@@ -78,8 +78,8 @@ pub(super) struct PullDiagnosticsHandler {
 }
 
 impl PullDiagnosticsHandler {
-    pub fn new() -> PullDiagnosticsHandler {
-        PullDiagnosticsHandler {
+    pub fn new() -> Self {
+        Self {
             no_inter_file_dependency_timeout: None,
         }
     }
@@ -138,7 +138,7 @@ fn dispatch_pull_diagnostic_for_document(
                 ls.capabilities()
                     .diagnostic_provider
                     .as_ref()
-                    .is_some_and(|dp| match dp {
+                    .is_some_and(|capabilities| match capabilities {
                         lsp::DiagnosticServerCapabilities::Options(options) => {
                             options.inter_file_dependencies
                         }
@@ -156,9 +156,7 @@ fn dispatch_pull_diagnostic_for_document(
 
 fn dispatch_pull_diagnostic_for_open_documents() {
     job::dispatch_blocking(move |editor, _| {
-        let documents = editor.documents.values();
-
-        for document in documents {
+        for document in editor.documents() {
             let language_servers = document
                 .language_servers_with_feature(LanguageServerFeature::PullDiagnostics)
                 .filter(|ls| ls.is_initialized());
@@ -216,7 +214,7 @@ pub fn pull_diagnostics_for_document(
                 .await
             }
             Err(err) => {
-                let parsed_cancellation_data = if let helix_lsp::Error::Rpc(error) = err {
+                let cancellation_data = if let helix_lsp::Error::Rpc(error) = err {
                     error.data.and_then(|data| {
                         serde_json::from_value::<lsp::DiagnosticServerCancellationData>(data).ok()
                     })
@@ -225,20 +223,18 @@ pub fn pull_diagnostics_for_document(
                     return;
                 };
 
-                if let Some(parsed_cancellation_data) = parsed_cancellation_data {
-                    if parsed_cancellation_data.retrigger_request {
-                        tokio::time::sleep(Duration::from_millis(500)).await;
+                if cancellation_data.is_some_and(|data| data.retrigger_request) {
+                    tokio::time::sleep(Duration::from_millis(500)).await;
 
-                        job::dispatch(move |editor, _| {
-                            if let (Some(doc), Some(language_server)) = (
-                                editor.document(document_id),
-                                editor.language_server_by_id(language_server_id),
-                            ) {
-                                pull_diagnostics_for_document(doc, language_server);
-                            }
-                        })
-                        .await;
-                    }
+                    job::dispatch(move |editor, _| {
+                        if let Some((doc, language_server)) = editor
+                            .document(document_id)
+                            .zip(editor.language_server_by_id(language_server_id))
+                        {
+                            pull_diagnostics_for_document(doc, language_server);
+                        }
+                    })
+                    .await;
                 }
             }
         }
