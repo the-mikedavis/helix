@@ -1236,7 +1236,13 @@ impl Client {
         &self,
         text_document: lsp::TextDocumentIdentifier,
         previous_result_id: Option<String>,
-    ) -> Option<impl Future<Output = Result<Value>>> {
+    ) -> Option<
+        impl Future<
+            Output = Result<
+                <lsp::request::DocumentDiagnosticRequest as lsp::request::Request>::Result,
+            >,
+        >,
+    > {
         let capabilities = self.capabilities();
 
         // Return early if the server does not support pull diagnostic.
@@ -1255,7 +1261,8 @@ impl Client {
             partial_result_params: lsp::PartialResultParams::default(),
         };
 
-        Some(self.call::<lsp::request::DocumentDiagnosticRequest>(params))
+        let call = self.call::<lsp::request::DocumentDiagnosticRequest>(params);
+        Some(async { Ok(serde_json::from_value(call.await?)?) })
     }
 
     pub fn text_document_document_highlight(

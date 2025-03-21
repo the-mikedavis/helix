@@ -202,14 +202,9 @@ pub fn pull_diagnostics_for_document(
 
     tokio::spawn(async move {
         match future.await {
-            Ok(res) => {
+            Ok(result) => {
                 job::dispatch(move |editor, _| {
-                    let response = match serde_json::from_value(res) {
-                        Ok(result) => result,
-                        Err(_) => return,
-                    };
-
-                    handle_pull_diagnostics_response(editor, response, provider, uri, document_id)
+                    handle_pull_diagnostics_response(editor, result, provider, uri, document_id)
                 })
                 .await
             }
@@ -243,33 +238,42 @@ pub fn pull_diagnostics_for_document(
 
 fn handle_pull_diagnostics_response(
     editor: &mut Editor,
-    response: lsp::DocumentDiagnosticReport,
+    result: lsp::DocumentDiagnosticReportResult,
     provider: DiagnosticProvider,
     uri: Uri,
     document_id: DocumentId,
 ) {
-    let (result_id, related_documents) = match response {
-        lsp::DocumentDiagnosticReport::Full(report) => {
-            editor.handle_lsp_diagnostics(
-                &provider,
-                uri,
-                None,
-                report.full_document_diagnostic_report.items,
-            );
+    let related_documents = match result {
+        lsp::DocumentDiagnosticReportResult::Report(report) => {
+            let (result_id, related_documents) = match report {
+                lsp::DocumentDiagnosticReport::Full(report) => {
+                    editor.handle_lsp_diagnostics(
+                        &provider,
+                        uri,
+                        None,
+                        report.full_document_diagnostic_report.items,
+                    );
 
-            (
-                report.full_document_diagnostic_report.result_id,
-                report.related_documents,
-            )
+                    (
+                        report.full_document_diagnostic_report.result_id,
+                        report.related_documents,
+                    )
+                }
+                lsp::DocumentDiagnosticReport::Unchanged(report) => (
+                    Some(report.unchanged_document_diagnostic_report.result_id),
+                    report.related_documents,
+                ),
+            };
+
+            if let Some(doc) = editor.document_mut(document_id) {
+                doc.previous_diagnostic_id = result_id;
+            };
+
+            related_documents
         }
-        lsp::DocumentDiagnosticReport::Unchanged(report) => (
-            Some(report.unchanged_document_diagnostic_report.result_id),
-            report.related_documents,
-        ),
-    };
-
-    if let Some(doc) = editor.document_mut(document_id) {
-        doc.previous_diagnostic_id = result_id;
+        lsp::DocumentDiagnosticReportResult::Partial(partial_report) => {
+            partial_report.related_documents
+        }
     };
 
     for (url, report) in related_documents.into_iter().flatten() {
