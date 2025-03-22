@@ -1,18 +1,18 @@
+use std::collections::HashSet;
 use std::time::Duration;
 
 use helix_core::diagnostic::DiagnosticProvider;
 use helix_core::syntax::LanguageServerFeature;
 use helix_core::Uri;
 use helix_event::{register_hook, send_blocking};
-use helix_lsp::lsp;
+use helix_lsp::{lsp, LanguageServerId};
 use helix_view::document::Mode;
 use helix_view::events::{
     DiagnosticsDidChange, DocumentDidChange, DocumentDidOpen, LanguageServerInitialized,
 };
 use helix_view::handlers::diagnostics::DiagnosticEvent;
-use helix_view::handlers::lsp::PullDiagnosticsEvent;
 use helix_view::handlers::Handlers;
-use helix_view::{DocumentId, Editor};
+use helix_view::{Document, DocumentId, Editor};
 use tokio::time::Instant;
 
 use crate::events::OnModeSwitch;
@@ -34,14 +34,13 @@ pub(super) fn register_hooks(handlers: &Handlers) {
         Ok(())
     });
 
-    let tx = handlers.pull_diagnostics.clone();
+    let tx = handlers.pull_diagnostics.document_tx.clone();
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
         if event
             .doc
             .has_language_server_with_feature(LanguageServerFeature::PullDiagnostics)
         {
-            let document_id = event.doc.id();
-            send_blocking(&tx, PullDiagnosticsEvent { document_id });
+            send_blocking(&tx, event.doc.id());
         }
         Ok(())
     });
@@ -72,139 +71,157 @@ pub(super) fn register_hooks(handlers: &Handlers) {
     });
 }
 
-#[derive(Debug)]
-pub(super) struct PullDiagnosticsHandler {
-    no_inter_file_dependency_timeout: Option<tokio::time::Instant>,
+enum RequestKind {
+    /// Diagnostics are being requested because a document has been opened or changed.
+    Document,
+    /// Diagnostics are being requested for all visible documents because the server declared
+    /// inter-file dependencies in the capabilities.
+    AllVisibleDocuments,
 }
 
-impl PullDiagnosticsHandler {
-    pub fn new() -> Self {
-        Self {
-            no_inter_file_dependency_timeout: None,
-        }
-    }
+#[derive(Debug, Default)]
+pub(super) struct DocumentDiagnosticsHandler {
+    documents: HashSet<DocumentId>,
 }
 
-const TIMEOUT: Duration = Duration::from_millis(500);
-const TIMEOUT_NO_INTER_FILE_DEPENDENCY: Duration = Duration::from_millis(125);
-
-impl helix_event::AsyncHook for PullDiagnosticsHandler {
-    type Event = PullDiagnosticsEvent;
+impl helix_event::AsyncHook for DocumentDiagnosticsHandler {
+    type Event = DocumentId;
 
     fn handle_event(
         &mut self,
-        event: Self::Event,
-        timeout: Option<tokio::time::Instant>,
+        doc: Self::Event,
+        _timeout: Option<tokio::time::Instant>,
     ) -> Option<tokio::time::Instant> {
-        if timeout.is_none() {
-            dispatch_pull_diagnostic_for_document(event.document_id, false);
-            self.no_inter_file_dependency_timeout = Some(Instant::now());
-        }
-
-        if self
-            .no_inter_file_dependency_timeout
-            .is_some_and(|nifd_timeout| {
-                nifd_timeout.duration_since(Instant::now()) > TIMEOUT_NO_INTER_FILE_DEPENDENCY
-            })
-        {
-            dispatch_pull_diagnostic_for_document(event.document_id, true);
-            self.no_inter_file_dependency_timeout = Some(Instant::now());
-        };
-
-        Some(Instant::now() + TIMEOUT)
+        self.documents.insert(doc);
+        Some(Instant::now() + Duration::from_millis(125))
     }
 
     fn finish_debounce(&mut self) {
-        dispatch_pull_diagnostic_for_open_documents();
+        let documents = std::mem::take(&mut self.documents);
+        job::dispatch_blocking(move |editor, _| {
+            for doc in documents {
+                let Some(doc) = editor.document(doc) else {
+                    continue;
+                };
+
+                for server in
+                    doc.language_servers_with_feature(LanguageServerFeature::PullDiagnostics)
+                {
+                    pull_diagnostics_for_document(doc, server);
+                }
+            }
+        });
     }
 }
 
-fn dispatch_pull_diagnostic_for_document(
-    document_id: DocumentId,
-    exclude_language_servers_without_inter_file_dependency: bool,
-) {
-    job::dispatch_blocking(move |editor, _| {
-        let Some(doc) = editor.document(document_id) else {
-            return;
-        };
+#[derive(Debug, Default)]
+pub(super) struct InterFileDependencyDiagnosticsHandler {
+    servers: HashSet<LanguageServerId>,
+}
 
-        let language_servers = doc
-            .language_servers_with_feature(LanguageServerFeature::PullDiagnostics)
-            .filter(|ls| ls.is_initialized())
-            .filter(|ls| {
-                if !exclude_language_servers_without_inter_file_dependency {
-                    return true;
+impl helix_event::AsyncHook for InterFileDependencyDiagnosticsHandler {
+    type Event = LanguageServerId;
+
+    fn handle_event(
+        &mut self,
+        server_id: Self::Event,
+        _timeout: Option<tokio::time::Instant>,
+    ) -> Option<tokio::time::Instant> {
+        self.servers.insert(server_id);
+        Some(Instant::now() + Duration::from_secs(1))
+    }
+
+    fn finish_debounce(&mut self) {
+        let servers = std::mem::take(&mut self.servers);
+        job::dispatch_blocking(move |editor, _| {
+            for server_id in servers {
+                let Some(server) = editor.language_server_by_id(server_id) else {
+                    continue;
                 };
-                ls.capabilities()
-                    .diagnostic_provider
-                    .as_ref()
-                    .is_some_and(|capabilities| match capabilities {
-                        lsp::DiagnosticServerCapabilities::Options(options) => {
-                            options.inter_file_dependencies
-                        }
-                        lsp::DiagnosticServerCapabilities::RegistrationOptions(options) => {
-                            options.diagnostic_options.inter_file_dependencies
-                        }
-                    })
-            });
-
-        for language_server in language_servers {
-            pull_diagnostics_for_document(doc, language_server);
-        }
-    })
-}
-
-fn dispatch_pull_diagnostic_for_open_documents() {
-    job::dispatch_blocking(move |editor, _| {
-        for document in editor.documents() {
-            let language_servers = document
-                .language_servers_with_feature(LanguageServerFeature::PullDiagnostics)
-                .filter(|ls| ls.is_initialized());
-
-            for language_server in language_servers {
-                pull_diagnostics_for_document(document, language_server);
+                for doc in editor.documents() {
+                    if doc.supports_language_server(server_id) {
+                        pull_diagnostics_for_document_impl(
+                            doc,
+                            server,
+                            RequestKind::AllVisibleDocuments,
+                        );
+                    }
+                }
             }
-        }
-    })
+        });
+    }
 }
 
-pub fn pull_diagnostics_for_document(
-    doc: &helix_view::Document,
+pub fn pull_diagnostics_for_document(doc: &Document, language_server: &helix_lsp::Client) {
+    pull_diagnostics_for_document_impl(doc, language_server, RequestKind::Document);
+}
+
+fn pull_diagnostics_for_document_impl(
+    doc: &Document,
     language_server: &helix_lsp::Client,
+    request_kind: RequestKind,
 ) {
-    let Some(future) = language_server
-        .text_document_diagnostic(doc.identifier(), doc.previous_diagnostic_id.clone())
-    else {
+    if !language_server.is_initialized() {
+        return;
+    }
+    if !language_server.supports_feature(LanguageServerFeature::PullDiagnostics) {
+        return;
+    }
+    let Some(features) = doc.language_config().and_then(|config| {
+        config
+            .language_servers
+            .iter()
+            .find(|features| features.name == language_server.name())
+    }) else {
         return;
     };
-
+    if !features.has_feature(LanguageServerFeature::PullDiagnostics) {
+        return;
+    }
     let Some(uri) = doc.uri() else {
         return;
     };
-
-    let identifier = language_server
-        .capabilities()
-        .diagnostic_provider
-        .as_ref()
-        .and_then(|diagnostic_provider| match diagnostic_provider {
-            lsp::DiagnosticServerCapabilities::Options(options) => options.identifier.clone(),
-            lsp::DiagnosticServerCapabilities::RegistrationOptions(options) => {
-                options.diagnostic_options.identifier.clone()
-            }
-        });
-
+    let Some(capabilities) = language_server.capabilities().diagnostic_provider.as_ref() else {
+        return;
+    };
+    let identifier = match capabilities {
+        lsp::DiagnosticServerCapabilities::Options(options) => options.identifier.clone(),
+        lsp::DiagnosticServerCapabilities::RegistrationOptions(options) => {
+            options.diagnostic_options.identifier.clone()
+        }
+    };
+    let inter_file_dependencies = match capabilities {
+        lsp::DiagnosticServerCapabilities::Options(options) => options.inter_file_dependencies,
+        lsp::DiagnosticServerCapabilities::RegistrationOptions(options) => {
+            options.diagnostic_options.inter_file_dependencies
+        }
+    };
     let language_server_id = language_server.id();
     let provider = DiagnosticProvider::Lsp {
         server_id: language_server_id,
         identifier,
     };
     let document_id = doc.id();
+    let Some(future) = language_server
+        .text_document_diagnostic(doc.identifier(), doc.previous_diagnostic_id.clone())
+    else {
+        return;
+    };
 
     tokio::spawn(async move {
         match future.await {
             Ok(result) => {
                 job::dispatch(move |editor, _| {
-                    handle_pull_diagnostics_response(editor, result, provider, uri, document_id)
+                    handle_pull_diagnostics_response(editor, result, provider, uri, document_id);
+                    // If this pull request was triggered by a document changing and the server
+                    // declares inter-file dependencies in its capabilities, queue up a request
+                    // for any open documents.
+                    if matches!(request_kind, RequestKind::Document) && inter_file_dependencies {
+                        editor
+                            .handlers
+                            .pull_diagnostics
+                            .debounce_pull_visible_documents(language_server_id);
+                    }
                 })
                 .await
             }

@@ -1,5 +1,6 @@
 use completion::{CompletionEvent, CompletionHandler};
 use helix_event::send_blocking;
+use lsp::PullDiagnosticsHandler;
 use tokio::sync::mpsc::Sender;
 
 use crate::handlers::lsp::SignatureHelpInvoked;
@@ -21,7 +22,7 @@ pub struct Handlers {
     pub completions: CompletionHandler,
     pub signature_hints: Sender<lsp::SignatureHelpEvent>,
     pub auto_save: Sender<AutoSaveEvent>,
-    pub pull_diagnostics: Sender<lsp::PullDiagnosticsEvent>,
+    pub pull_diagnostics: PullDiagnosticsHandler,
 }
 
 impl Handlers {

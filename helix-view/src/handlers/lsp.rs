@@ -11,6 +11,7 @@ use helix_core::Uri;
 use helix_event::register_hook;
 use helix_lsp::util::generate_transaction_from_edits;
 use helix_lsp::{lsp, LanguageServerId, OffsetEncoding};
+use tokio::sync::mpsc::Sender;
 
 use super::Handlers;
 
@@ -28,8 +29,24 @@ pub enum SignatureHelpEvent {
     RequestComplete { open: bool },
 }
 
-pub struct PullDiagnosticsEvent {
-    pub document_id: DocumentId,
+pub struct PullDiagnosticsHandler {
+    pub document_tx: Sender<DocumentId>,
+    server_tx: Sender<LanguageServerId>,
+}
+
+impl PullDiagnosticsHandler {
+    pub fn new(document_tx: Sender<DocumentId>, server_tx: Sender<LanguageServerId>) -> Self {
+        Self {
+            document_tx,
+            server_tx,
+        }
+    }
+
+    /// Request that diagnostics be pulled for all open documents supported by the given server,
+    /// debounced.
+    pub fn debounce_pull_visible_documents(&self, server_id: LanguageServerId) {
+        helix_event::send_blocking(&self.server_tx, server_id);
+    }
 }
 
 #[derive(Debug)]
