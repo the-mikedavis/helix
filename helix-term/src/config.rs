@@ -120,8 +120,16 @@ impl Config {
     pub fn load_default() -> Result<Config, ConfigLoadError> {
         let global_config =
             fs::read_to_string(helix_loader::config_file()).map_err(ConfigLoadError::Error);
-        let local_config = fs::read_to_string(helix_loader::workspace_config_file())
+        let mut local_config = fs::read_to_string(helix_loader::workspace_config_file())
             .map_err(ConfigLoadError::Error);
+        // Clear untrusted workspace configs.
+        if let Ok(config) = &mut local_config {
+            let (workspace, _) = helix_loader::find_workspace();
+            let trust = helix_loader::WORKSPACE_TRUST.read().unwrap();
+            if !trust.is_trusted(&workspace) {
+                config.clear();
+            }
+        }
         Config::load(global_config, local_config)
     }
 }

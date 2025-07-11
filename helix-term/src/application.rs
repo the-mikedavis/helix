@@ -238,6 +238,10 @@ impl Application {
         ])
         .context("build signal handler")?;
 
+        if helix_loader::workspace_trust::WorkspaceTrust::is_workspace_suspicious() {
+            compositor.push(Box::new(crate::workspace_trust_select()));
+        }
+
         let app = Self {
             compositor,
             terminal,

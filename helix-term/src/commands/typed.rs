@@ -2636,7 +2636,20 @@ fn echo(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow:
     Ok(())
 }
 
-fn noop(_cx: &mut compositor::Context, _args: Args, _event: PromptEvent) -> anyhow::Result<()> {
+fn noop(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+
+    cx.jobs.callback(async move {
+        let call = move |_editor: &mut Editor, compositor: &mut Compositor| {
+            let select = crate::workspace_trust_select();
+            compositor.replace_or_push("select", select);
+        };
+
+        Ok(Callback::EditorCompositor(Box::new(call)))
+    });
+
     Ok(())
 }
 

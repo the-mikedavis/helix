@@ -86,3 +86,20 @@ fn open_external_url_callback(
         })))
     }
 }
+
+fn workspace_trust_select() -> ui::Select<helix_loader::workspace_trust::TrustWorkspace> {
+    use helix_loader::workspace_trust::TrustWorkspace;
+
+    ui::Select::new(
+        "Trust this workspace?\n\nTrusted workspaces may load local config files and auto-start language servers. Config and language servers can cause arbitrary code execution. Only trust workspaces which you know contain harmless config and code.",
+        [TrustWorkspace::DenyAlways, TrustWorkspace::DenyOnce, TrustWorkspace::AllowAlways],
+        |editor, option, event| {
+            if event == ui::PromptEvent::Validate {
+                let mut trust = helix_loader::WORKSPACE_TRUST.write().unwrap();
+                if let Err(err) = trust.declare_trust(helix_stdx::env::current_working_dir(), *option) {
+                    editor.set_status(format!("Failed to save workspace trust: {err}"));
+                }
+            }
+        },
+    )
+}

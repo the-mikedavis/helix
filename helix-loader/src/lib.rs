@@ -1,10 +1,13 @@
 pub mod config;
 pub mod grammar;
+pub mod workspace_trust;
 
 use helix_stdx::{env::current_working_dir, path};
 
 use etcetera::base_strategy::{choose_base_strategy, BaseStrategy};
 use std::path::{Path, PathBuf};
+
+pub use workspace_trust::WORKSPACE_TRUST;
 
 pub const VERSION_AND_GIT_HASH: &str = env!("VERSION_AND_GIT_HASH");
 
@@ -128,6 +131,14 @@ pub fn cache_dir() -> PathBuf {
     // TODO: allow env var override
     let strategy = choose_base_strategy().expect("Unable to find the cache directory!");
     let mut path = strategy.cache_dir();
+    path.push("helix");
+    path
+}
+
+pub fn state_dir() -> PathBuf {
+    let strategy = choose_base_strategy().expect("Unable to find the cache directory!");
+    // NOTE: state dir is always defined when using BaseStrategy.
+    let mut path = strategy.state_dir().unwrap();
     path.push("helix");
     path
 }
