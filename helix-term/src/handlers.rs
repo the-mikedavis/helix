@@ -18,6 +18,7 @@ mod diagnostics;
 mod document_colors;
 mod signature_help;
 mod snippet;
+mod workspace_trust;
 
 pub fn setup(config: Arc<ArcSwap<Config>>) -> Handlers {
     events::register();
@@ -43,5 +44,6 @@ pub fn setup(config: Arc<ArcSwap<Config>>) -> Handlers {
     diagnostics::register_hooks(&handlers);
     snippet::register_hooks(&handlers);
     document_colors::register_hooks(&handlers);
+    workspace_trust::register_hooks(&handlers);
     handlers
 }
