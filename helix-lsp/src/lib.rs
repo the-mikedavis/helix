@@ -687,6 +687,7 @@ impl Registry {
         doc_path: Option<&'a std::path::PathBuf>,
         root_dirs: &'a [PathBuf],
         enable_snippets: bool,
+        auto_start: bool,
     ) -> impl Iterator<Item = (LanguageServerName, Result<Arc<Client>>)> + 'a {
         language_config.language_servers.iter().filter_map(
             move |LanguageServerFeatures { name, .. }| {
@@ -708,6 +709,8 @@ impl Registry {
                     }) {
                         return Some((name.to_owned(), Ok(client.clone())));
                     }
+                } else if !auto_start {
+                    return None;
                 }
                 match self.start_client(
                     name.clone(),

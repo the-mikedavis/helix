@@ -2644,7 +2644,7 @@ fn noop(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow
     cx.jobs.callback(async move {
         use crate::handlers::workspace_trust;
         let call = move |_editor: &mut Editor, compositor: &mut Compositor| {
-            let select = workspace_trust::select();
+            let select = workspace_trust::select(helix_stdx::env::current_working_dir());
             compositor.replace_or_push(workspace_trust::ID, select);
         };
 

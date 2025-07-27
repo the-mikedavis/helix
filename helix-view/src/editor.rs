@@ -452,11 +452,22 @@ pub fn get_terminal_provider() -> Option<TerminalConfig> {
     None
 }
 
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LspAutoStart {
+    Always,
+    #[default]
+    Trusted,
+    Never,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct LspConfig {
     /// Enables LSP
     pub enable: bool,
+    /// Whether to start language servers automatically.
+    pub auto_start: LspAutoStart,
     /// Display LSP messagess from $/progress below statusline
     pub display_progress_messages: bool,
     /// Display LSP messages from window/showMessage below statusline
@@ -482,6 +493,7 @@ impl Default for LspConfig {
     fn default() -> Self {
         Self {
             enable: true,
+            auto_start: Default::default(),
             display_progress_messages: false,
             display_messages: true,
             auto_signature_help: true,
@@ -1549,11 +1561,20 @@ impl Editor {
         let (lang, path) = (doc.language.clone(), doc.path().cloned());
         let config = doc.config.load();
         let root_dirs = &config.workspace_lsp_roots;
+        let auto_start = match config.lsp.auto_start {
+            LspAutoStart::Always => true,
+            LspAutoStart::Trusted => {
+                let trust = helix_loader::WORKSPACE_TRUST.read();
+                let (workspace, _) = helix_loader::find_workspace();
+                trust.is_trusted(&workspace)
+            }
+            LspAutoStart::Never => false,
+        };
 
         // store only successfully started language servers
         let language_servers = lang.as_ref().map_or_else(HashMap::default, |language| {
             self.language_servers
-                .get(language, path.as_ref(), root_dirs, config.lsp.snippets)
+                .get(language, path.as_ref(), root_dirs, config.lsp.snippets, auto_start)
                 .filter_map(|(lang, client)| match client {
                     Ok(client) => Some((lang, client)),
                     Err(err) => {

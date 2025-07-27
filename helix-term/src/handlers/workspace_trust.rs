@@ -37,7 +37,7 @@ pub fn select(path: PathBuf) -> ui::Select<TrustWorkspace> {
         ],
         |editor, option, event| {
             if event == ui::PromptEvent::Validate {
-                let mut trust = helix_loader::WORKSPACE_TRUST.write().unwrap();
+                let mut trust = helix_loader::WORKSPACE_TRUST.write();
                 if let Err(err) =
                     trust.declare_trust(helix_stdx::env::current_working_dir(), *option)
                 {

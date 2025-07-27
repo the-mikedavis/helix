@@ -125,7 +125,7 @@ impl Config {
         // Clear untrusted workspace configs.
         if let Ok(config) = &mut local_config {
             let (workspace, _) = helix_loader::find_workspace();
-            let trust = helix_loader::WORKSPACE_TRUST.read().unwrap();
+            let trust = helix_loader::WORKSPACE_TRUST.read();
             if !trust.is_trusted(&workspace) {
                 config.clear();
             }

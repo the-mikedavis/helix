@@ -3,11 +3,11 @@ use std::{
     fs,
     io::{self, Write},
     path::{Path, PathBuf},
-    sync::RwLock,
 };
 
 use anyhow::{bail, Context as _, Result};
 use once_cell::sync::Lazy;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
 // TODO: Add extra enum variants to allow trusting a workspace with the current config file
@@ -113,7 +113,7 @@ impl WorkspaceTrust {
     pub fn is_workspace_suspicious() -> Option<PathBuf> {
         if crate::workspace_config_file().exists() {
             let (workspace, _) = crate::find_workspace();
-            let this = WORKSPACE_TRUST.read().unwrap();
+            let this = WORKSPACE_TRUST.read();
             if this.persistent.0.contains_key(&workspace) {
                 None
             } else {
