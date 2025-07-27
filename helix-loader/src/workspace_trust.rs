@@ -109,13 +109,18 @@ impl WorkspaceTrust {
         Ok(())
     }
 
-    pub fn is_workspace_suspicious() -> bool {
+    // TODO: rename
+    pub fn is_workspace_suspicious() -> Option<PathBuf> {
         if crate::workspace_config_file().exists() {
             let (workspace, _) = crate::find_workspace();
             let this = WORKSPACE_TRUST.read().unwrap();
-            !this.persistent.0.contains_key(&workspace)
+            if this.persistent.0.contains_key(&workspace) {
+                None
+            } else {
+                Some(workspace)
+            }
         } else {
-            false
+            None
         }
     }
 

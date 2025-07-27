@@ -18,7 +18,7 @@ mod diagnostics;
 mod document_colors;
 mod signature_help;
 mod snippet;
-mod workspace_trust;
+pub mod workspace_trust;
 
 pub fn setup(config: Arc<ArcSwap<Config>>) -> Handlers {
     events::register();

@@ -238,8 +238,9 @@ impl Application {
         ])
         .context("build signal handler")?;
 
-        if helix_loader::workspace_trust::WorkspaceTrust::is_workspace_suspicious() {
-            compositor.push(Box::new(crate::workspace_trust_select()));
+        if let Some(path) = helix_loader::workspace_trust::WorkspaceTrust::is_workspace_suspicious()
+        {
+            compositor.push(Box::new(crate::handlers::workspace_trust::select(path)));
         }
 
         let app = Self {
