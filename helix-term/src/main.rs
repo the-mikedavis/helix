@@ -115,7 +115,7 @@ FLAGS:
         return Ok(1);
     }
 
-    let config = match Config::load_default() {
+    let mut config = match Config::load_default() {
         Ok(config) => config,
         Err(ConfigLoadError::Error(err)) if err.kind() == std::io::ErrorKind::NotFound => {
             Config::default()
@@ -129,6 +129,11 @@ FLAGS:
             Config::default()
         }
     };
+    config.theme = Some(helix_view::theme::Config::Adaptive {
+        dark: "grv".to_string(),
+        light: "onelight".to_string(),
+        fallback: None,
+    });
 
     let workspace_trust =
         helix_loader::workspace_trust::WorkspaceTrust::new((&config.editor.workspace_trust).into());
