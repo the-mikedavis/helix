@@ -11,7 +11,7 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
 // TODO: Add extra enum variants to allow trusting a workspace with the current config file
-// contents (fingerprinted with SHA256).
+// contents (fingerprinted with a cryptographic hash).
 
 const FILENAME: &str = "workspace-trust.toml";
 

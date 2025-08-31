@@ -6,41 +6,57 @@ use helix_view::{events::DocumentDidOpen, handlers::Handlers};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 
-use crate::ui;
+use crate::{compositor::Compositor, job, ui};
 
 pub const ID: &str = "workspace-trust-select";
 
-/// A set of workspaces which have been prompted for trust at runtime.
+/// A set of canonicalized workspace paths which have been prompted for trust at runtime.
 static PROMPTED_WORKSPACES: Lazy<Mutex<HashSet<PathBuf>>> =
     Lazy::new(|| Mutex::new(HashSet::new()));
 
 pub(super) fn register_hooks(_handlers: &Handlers) {
     register_hook!(move |event: &mut DocumentDidOpen<'_>| {
-        todo!();
-        // Ok(())
+        let config = event.editor.config();
+        if config.auto_trust {
+            return Ok(());
+        }
+        let doc = doc!(event.editor, &event.doc);
+        if doc.language_servers().next().is_none() {
+            let (workspace, _) = helix_loader::find_workspace();
+            job::dispatch_blocking(|_editor, compositor| prompt(workspace, compositor));
+        }
+        Ok(())
     });
+}
+
+pub fn prompt(path: PathBuf, compositor: &mut Compositor) {
+    let mut workspaces = PROMPTED_WORKSPACES.lock();
+    if workspaces.contains(&path) {
+        return;
+    } else {
+        workspaces.insert(path.clone());
+    }
+    let select = select(path);
+    compositor.replace_or_push(ID, select);
 }
 
 const TRUST_MESSAGE: &str = "Trust this workspace?
 
-Trusted workspaces may load config files and auto-start language servers. Config and language servers can cause arbitrary code execution. Only trust workspaces which you know contain harmless config and code.";
+Trusted workspaces may load local config files and auto-start language servers. Config and language servers can cause arbitrary code execution. Only trust workspaces which you know contain harmless config and code.";
 
-pub fn select(path: PathBuf) -> ui::Select<TrustWorkspace> {
-    let mut workspaces = PROMPTED_WORKSPACES.lock();
-    workspaces.insert(path);
+fn select(path: PathBuf) -> ui::Select<TrustWorkspace> {
     ui::Select::new(
         TRUST_MESSAGE,
+        // TODO: just use Menu::Item? Seems cleaner.
         [
-            TrustWorkspace::DenyAlways,
             TrustWorkspace::DenyOnce,
+            TrustWorkspace::DenyAlways,
             TrustWorkspace::AllowAlways,
         ],
-        |editor, option, event| {
+        move |editor, option, event| {
             if event == ui::PromptEvent::Validate {
                 let mut trust = helix_loader::WORKSPACE_TRUST.write();
-                if let Err(err) =
-                    trust.declare_trust(helix_stdx::env::current_working_dir(), *option)
-                {
+                if let Err(err) = trust.declare_trust(path.clone(), *option) {
                     editor.set_status(format!("Failed to save workspace trust: {err}"));
                 }
             }

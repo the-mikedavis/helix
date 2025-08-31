@@ -97,8 +97,9 @@ impl<T: AsRef<str> + Sync + Send + 'static> Component for Select<T> {
 
         // Message
         let background = cx.editor.theme.get("ui.background");
+        let text = cx.editor.theme.get("ui.text");
         let message_box = area.with_height(message_height + 2);
-        surface.clear_with(message_box, background);
+        surface.clear_with(message_box, background.patch(text));
         BLOCK.render(message_box, surface);
         let message_area = BLOCK.inner(message_box);
         self.message.render(message_area, surface, cx);

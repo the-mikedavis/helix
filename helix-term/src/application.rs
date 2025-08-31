@@ -240,7 +240,7 @@ impl Application {
 
         if let Some(path) = helix_loader::workspace_trust::WorkspaceTrust::is_workspace_suspicious()
         {
-            compositor.push(Box::new(crate::handlers::workspace_trust::select(path)));
+            crate::handlers::workspace_trust::prompt(path, &mut compositor);
         }
 
         let app = Self {
@@ -438,6 +438,11 @@ impl Application {
             Err(err) => {
                 self.editor.set_error(err.to_string());
             }
+        }
+
+        if let Some(path) = helix_loader::workspace_trust::WorkspaceTrust::is_workspace_suspicious()
+        {
+            crate::handlers::workspace_trust::prompt(path, &mut self.compositor);
         }
     }
 
