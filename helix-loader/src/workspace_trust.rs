@@ -26,6 +26,22 @@ pub static WORKSPACE_TRUST: Lazy<RwLock<WorkspaceTrust>> = Lazy::new(|| {
     RwLock::new(trust)
 });
 
+/// Return the current workspace directory if it contains local configuration and also has
+/// not been trusted.
+pub fn get_workspace_with_untrusted_config() -> Option<PathBuf> {
+    if crate::workspace_config_file().exists() {
+        let (workspace, _) = crate::find_workspace();
+        let this = WORKSPACE_TRUST.read();
+        if this.persistent.0.contains_key(&workspace) {
+            None
+        } else {
+            Some(workspace)
+        }
+    } else {
+        None
+    }
+}
+
 /// A command which allows or denies _trust_ in a directory.
 ///
 /// In this context, _trust_ means that Helix will run LSP language servers and load local
@@ -109,27 +125,10 @@ impl WorkspaceTrust {
         Ok(())
     }
 
-    // TODO: rename
-    pub fn is_workspace_suspicious() -> Option<PathBuf> {
-        if crate::workspace_config_file().exists() {
-            let (workspace, _) = crate::find_workspace();
-            let this = WORKSPACE_TRUST.read();
-            if this.persistent.0.contains_key(&workspace) {
-                None
-            } else {
-                Some(workspace)
-            }
-        } else {
-            None
-        }
-    }
-
     pub fn is_trusted(&self, path: &Path) -> bool {
         if let Some(is_trusted) = self.transient.get(path) {
             return *is_trusted;
         }
-
-        log::error!("get: {:?}", self.persistent.0.get(path));
 
         self.persistent.0.get(path) == Some(&Trust::Always)
     }
@@ -149,5 +148,5 @@ enum Trust {
     /// Any attempts to start a language server under this directory or load configuration will
     /// succeed.
     Always,
-    // TODO: allow trusting with the current exact contents of the config file.
+    // TODO: allow trusting with the current exact contents of the config file?
 }

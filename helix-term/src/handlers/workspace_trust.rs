@@ -42,17 +42,17 @@ pub fn prompt(path: PathBuf, compositor: &mut Compositor) {
 
 const TRUST_MESSAGE: &str = "Trust this workspace?
 
-Trusted workspaces may load local config files and auto-start language servers. Config and language servers can cause arbitrary code execution. Only trust workspaces which you know contain harmless config and code.";
+Trusted workspaces may load local config files and auto-start language servers. Config and language servers can execute arbitrary code. Only trust workspaces which you know contain harmless config and code.";
 
 fn select(path: PathBuf) -> ui::Select<TrustWorkspace> {
     ui::Select::new(
         TRUST_MESSAGE,
-        // TODO: just use Menu::Item? Seems cleaner.
         [
             TrustWorkspace::DenyOnce,
             TrustWorkspace::DenyAlways,
             TrustWorkspace::AllowAlways,
         ],
+        (),
         move |editor, option, event| {
             if event == ui::PromptEvent::Validate {
                 let mut trust = helix_loader::WORKSPACE_TRUST.write();
@@ -62,4 +62,17 @@ fn select(path: PathBuf) -> ui::Select<TrustWorkspace> {
             }
         },
     )
+}
+
+impl crate::ui::menu::Item for TrustWorkspace {
+    type Data = ();
+
+    fn format(&self, _data: &Self::Data) -> tui::widgets::Row {
+        match self {
+            TrustWorkspace::DenyAlways => "Never",
+            TrustWorkspace::DenyOnce => "Not now",
+            TrustWorkspace::AllowAlways => "Always",
+        }
+        .into()
+    }
 }

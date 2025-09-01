@@ -238,8 +238,7 @@ impl Application {
         ])
         .context("build signal handler")?;
 
-        if let Some(path) = helix_loader::workspace_trust::WorkspaceTrust::is_workspace_suspicious()
-        {
+        if let Some(path) = helix_loader::workspace_trust::get_workspace_with_untrusted_config() {
             crate::handlers::workspace_trust::prompt(path, &mut compositor);
         }
 
@@ -440,8 +439,7 @@ impl Application {
             }
         }
 
-        if let Some(path) = helix_loader::workspace_trust::WorkspaceTrust::is_workspace_suspicious()
-        {
+        if let Some(path) = helix_loader::workspace_trust::get_workspace_with_untrusted_config() {
             crate::handlers::workspace_trust::prompt(path, &mut self.compositor);
         }
     }
@@ -1048,19 +1046,22 @@ impl Application {
                         Ok(json!(result))
                     }
                     Ok(MethodCall::ShowMessageRequest(params)) => {
+                        impl ui::menu::Item for lsp::MessageActionItem {
+                            type Data = ();
+                            fn format(&self, _data: &Self::Data) -> tui::widgets::Row {
+                                self.title.as_str().into()
+                            }
+                        }
                         if let Some(actions) = params.actions.filter(|a| !a.is_empty()) {
                             let id = id.clone();
-                            let options: Vec<_> =
-                                actions.iter().map(|action| action.title.clone()).collect();
                             let select = ui::Select::new(
                                 params.message,
-                                options,
-                                move |editor, option, event| {
+                                actions,
+                                (),
+                                move |editor, action, event| {
                                     let reply = match event {
                                         ui::PromptEvent::Update => return,
-                                        ui::PromptEvent::Validate => {
-                                            actions.iter().find(|a| &a.title == option).cloned()
-                                        }
+                                        ui::PromptEvent::Validate => Some(action.clone()),
                                         ui::PromptEvent::Abort => None,
                                     };
                                     if let Some(language_server) =
