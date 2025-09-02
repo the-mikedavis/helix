@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs,
-    io::{self, Write},
+    io::{self, Write as _},
     path::{Path, PathBuf},
 };
 
@@ -9,9 +9,6 @@ use anyhow::{bail, Context as _, Result};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-
-// TODO: Add extra enum variants to allow trusting a workspace with the current config file
-// contents (fingerprinted with a cryptographic hash).
 
 const FILENAME: &str = "workspace-trust.toml";
 
@@ -58,16 +55,6 @@ pub enum TrustWorkspace {
     /// servers.
     AllowAlways,
     // TODO: allow trusting with the current exact contents of the config file.
-}
-
-impl AsRef<str> for TrustWorkspace {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::DenyAlways => "Never",
-            Self::DenyOnce => "Not now",
-            Self::AllowAlways => "Always",
-        }
-    }
 }
 
 #[derive(Debug, Default)]
@@ -148,5 +135,6 @@ enum Trust {
     /// Any attempts to start a language server under this directory or load configuration will
     /// succeed.
     Always,
-    // TODO: allow trusting with the current exact contents of the config file?
+    // TODO: allow trusting with the current exact contents of the config file? (i.e. store a
+    // cryptographic hash of the config file contents and trust when the hashes match.)
 }

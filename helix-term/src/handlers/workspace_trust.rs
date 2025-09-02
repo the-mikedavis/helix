@@ -8,7 +8,7 @@ use parking_lot::Mutex;
 
 use crate::{compositor::Compositor, job, ui};
 
-pub const ID: &str = "workspace-trust-select";
+const ID: &str = "workspace-trust-select";
 
 /// A set of canonicalized workspace paths which have been prompted for trust at runtime.
 static PROMPTED_WORKSPACES: Lazy<Mutex<HashSet<PathBuf>>> =
