@@ -2938,6 +2938,38 @@ fn read(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow:
     Ok(())
 }
 
+fn explore(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+
+    let dir = match args.first() {
+        Some(arg) => PathBuf::from(arg),
+        None => {
+            let root = find_workspace().0;
+            if !root.exists() {
+                bail!("Workspace directory does not exist");
+            }
+            root
+        }
+    };
+
+    let callback = async move {
+        let call: job::Callback = Callback::EditorCompositor(Box::new(
+            move |editor: &mut Editor, compositor: &mut Compositor| {
+                if let Ok(explorer) = ui::file_explorer(dir, editor) {
+                    compositor.push(Box::new(overlaid(explorer)));
+                }
+            },
+        ));
+        Ok(call)
+    };
+
+    cx.jobs.callback(callback);
+
+    Ok(())
+}
+
 fn echo(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {
         return Ok(());
@@ -4057,6 +4089,17 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         completer: CommandCompleter::positional(&[completers::filename]),
         signature: Signature {
             positionals: (1, Some(1)),
+            ..Signature::DEFAULT
+        },
+    },
+    TypableCommand {
+        name: "explore",
+        aliases: &[],
+        doc: "Open the file explorer at the given directory, or current directory by default.",
+        fun: explore,
+        completer: CommandCompleter::all(completers::directory),
+        signature: Signature {
+            positionals: (0, Some(1)),
             ..Signature::DEFAULT
         },
     },
