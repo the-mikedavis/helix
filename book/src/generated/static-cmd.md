@@ -109,6 +109,10 @@
 | `symbol_picker` | Open symbol picker |  |
 | `syntax_symbol_picker` | Open symbol picker from syntax information |  |
 | `lsp_or_syntax_symbol_picker` | Open symbol picker from LSP or syntax information | normal: `` <space>s ``, select: `` <space>s `` |
+| `syntax_goto_definition` | Goto definition using syntax information |  |
+| `syntax_goto_references` | Goto references using syntax information |  |
+| `lsp_or_syntax_goto_definition` | Goto definition using LSP or syntax information | normal: `` gd ``, select: `` gd `` |
+| `lsp_or_syntax_goto_references` | Goto references using LSP or syntax information | normal: `` gr ``, select: `` gr `` |
 | `changed_file_picker` | Open changed file picker | normal: `` <space>G ``, select: `` <space>G `` |
 | `document_change_picker` | Open a picker of VCS changes in the current document | normal: `` <space>g ``, select: `` <space>g `` |
 | `select_references_to_symbol_under_cursor` | Select symbol references | normal: `` <space>h ``, select: `` <space>h `` |
@@ -125,7 +129,7 @@
 | `normal_mode` | Enter normal mode | normal: `` <esc> ``, select: `` v ``, insert: `` <esc> `` |
 | `select_mode` | Enter selection extend mode | normal: `` v `` |
 | `exit_select_mode` | Exit selection mode | select: `` <esc> `` |
-| `goto_definition` | Goto definition | normal: `` gd ``, select: `` gd `` |
+| `goto_definition` | Goto definition |  |
 | `goto_declaration` | Goto declaration | normal: `` gD ``, select: `` gD `` |
 | `add_newline_above` | Add newline above | normal: `` [<space> ``, select: `` [<space> `` |
 | `add_newline_below` | Add newline below | normal: `` ]<space> ``, select: `` ]<space> `` |
@@ -138,7 +142,7 @@
 | `goto_file` | Goto files/URLs in selections | normal: `` gf ``, select: `` gf `` |
 | `goto_file_hsplit` | Goto files in selections (hsplit) | normal: `` <C-w>f ``, `` <space>wf ``, select: `` <C-w>f ``, `` <space>wf `` |
 | `goto_file_vsplit` | Goto files in selections (vsplit) | normal: `` <C-w>F ``, `` <space>wF ``, select: `` <C-w>F ``, `` <space>wF `` |
-| `goto_reference` | Goto references | normal: `` gr ``, select: `` gr `` |
+| `goto_reference` | Goto references |  |
 | `goto_window_top` | Goto window top | normal: `` gt ``, select: `` gt `` |
 | `goto_window_center` | Goto window center | normal: `` gc ``, select: `` gc `` |
 | `goto_window_bottom` | Goto window bottom | normal: `` gb ``, select: `` gb `` |
@@ -280,22 +284,22 @@
 | `goto_prev_entry` | Goto previous pairing | normal: `` [e ``, select: `` [e `` |
 | `goto_next_paragraph` | Goto next paragraph | normal: `` ]p ``, select: `` ]p `` |
 | `goto_prev_paragraph` | Goto previous paragraph | normal: `` [p ``, select: `` [p `` |
-| `dap_launch` | Launch debug target | normal: `` <space>Gl ``, select: `` <space>Gl `` |
-| `dap_restart` | Restart debugging session | normal: `` <space>Gr ``, select: `` <space>Gr `` |
-| `dap_toggle_breakpoint` | Toggle breakpoint | normal: `` <space>Gb ``, select: `` <space>Gb `` |
-| `dap_continue` | Continue program execution | normal: `` <space>Gc ``, select: `` <space>Gc `` |
-| `dap_pause` | Pause program execution | normal: `` <space>Gh ``, select: `` <space>Gh `` |
-| `dap_step_in` | Step in | normal: `` <space>Gi ``, select: `` <space>Gi `` |
-| `dap_step_out` | Step out | normal: `` <space>Go ``, select: `` <space>Go `` |
-| `dap_next` | Step to next | normal: `` <space>Gn ``, select: `` <space>Gn `` |
-| `dap_variables` | List variables | normal: `` <space>Gv ``, select: `` <space>Gv `` |
-| `dap_terminate` | End debug session | normal: `` <space>Gt ``, select: `` <space>Gt `` |
-| `dap_edit_condition` | Edit breakpoint condition on current line | normal: `` <space>G<C-c> ``, select: `` <space>G<C-c> `` |
-| `dap_edit_log` | Edit breakpoint log message on current line | normal: `` <space>G<C-l> ``, select: `` <space>G<C-l> `` |
-| `dap_switch_thread` | Switch current thread | normal: `` <space>Gst ``, select: `` <space>Gst `` |
-| `dap_switch_stack_frame` | Switch stack frame | normal: `` <space>Gsf ``, select: `` <space>Gsf `` |
-| `dap_enable_exceptions` | Enable exception breakpoints | normal: `` <space>Ge ``, select: `` <space>Ge `` |
-| `dap_disable_exceptions` | Disable exception breakpoints | normal: `` <space>GE ``, select: `` <space>GE `` |
+| `dap_launch` | Launch debug target | normal: `` <space>!l ``, select: `` <space>!l `` |
+| `dap_restart` | Restart debugging session | normal: `` <space>!r ``, select: `` <space>!r `` |
+| `dap_toggle_breakpoint` | Toggle breakpoint | normal: `` <space>!b ``, select: `` <space>!b `` |
+| `dap_continue` | Continue program execution | normal: `` <space>!c ``, select: `` <space>!c `` |
+| `dap_pause` | Pause program execution | normal: `` <space>!h ``, select: `` <space>!h `` |
+| `dap_step_in` | Step in | normal: `` <space>!i ``, select: `` <space>!i `` |
+| `dap_step_out` | Step out | normal: `` <space>!o ``, select: `` <space>!o `` |
+| `dap_next` | Step to next | normal: `` <space>!n ``, select: `` <space>!n `` |
+| `dap_variables` | List variables | normal: `` <space>!v ``, select: `` <space>!v `` |
+| `dap_terminate` | End debug session | normal: `` <space>!t ``, select: `` <space>!t `` |
+| `dap_edit_condition` | Edit breakpoint condition on current line | normal: `` <space>!<C-c> ``, select: `` <space>!<C-c> `` |
+| `dap_edit_log` | Edit breakpoint log message on current line | normal: `` <space>!<C-l> ``, select: `` <space>!<C-l> `` |
+| `dap_switch_thread` | Switch current thread | normal: `` <space>!st ``, select: `` <space>!st `` |
+| `dap_switch_stack_frame` | Switch stack frame | normal: `` <space>!sf ``, select: `` <space>!sf `` |
+| `dap_enable_exceptions` | Enable exception breakpoints | normal: `` <space>!e ``, select: `` <space>!e `` |
+| `dap_disable_exceptions` | Disable exception breakpoints | normal: `` <space>!E ``, select: `` <space>!E `` |
 | `shell_pipe` | Pipe selections through shell command | normal: `` \| ``, select: `` \| `` |
 | `shell_pipe_to` | Pipe selections into shell command ignoring output | normal: `` <A-\|> ``, select: `` <A-\|> `` |
 | `shell_insert_output` | Insert shell command output before selections | normal: `` ! ``, select: `` ! `` |
@@ -314,3 +318,6 @@
 | `goto_prev_tabstop` | Goto next snippet placeholder |  |
 | `rotate_selections_first` | Make the first selection your primary one |  |
 | `rotate_selections_last` | Make the last selection your primary one |  |
+| `select_register_history` | Select an item from a register's history | normal: `` <C-r> ``, select: `` <C-r> `` |
+| `add_word_to_personal_dictionary` | Add the spelling mistake under the cursor to the personal dictionary | normal: `` <space>A ``, select: `` <space>A `` |
+| `suggest_spelling_correction` | Suggest corrections for the spelling mistake under the cursor | normal: `` <space>Z ``, select: `` <space>Z `` |
