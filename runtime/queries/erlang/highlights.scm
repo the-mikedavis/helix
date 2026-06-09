@@ -123,7 +123,7 @@
      body: (variable)? @variable.parameter))
  (#any-of? @keyword "spec" "callback"))
 ; functions
-(function_clause pattern: (arguments (variable) @variable.parameter))
+(function_clause pattern: (arguments ... (variable) @variable.parameter))
 ; anonymous functions
 (stab_clause pattern: (arguments (variable) @variable.parameter))
 ; parametric types

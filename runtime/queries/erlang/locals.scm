@@ -19,7 +19,7 @@
 
 ; Ordinary functions
 ((function_clause
-   pattern: (arguments (variable) @local.definition.variable.parameter)) @local.scope
+   pattern: (arguments ... (variable) @local.definition.variable.parameter)) @local.scope
  (#not-match? @local.definition.variable.parameter "^_"))
 
 (variable) @local.reference
